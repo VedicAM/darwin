@@ -56,3 +56,15 @@ frontend build first, so it also typechecks.
 Frontend-only build (typecheck + Vite bundle, no Rust): `npm run build`
 Typecheck only: `npx tsc --noEmit`
 Rust only: `cd src-tauri && cargo check`
+
+## Self-evolving tool taxonomy
+
+The standalone Python package in [`evolution/`](evolution/) maintains a
+versioned scientific-tool Table of Contents in MongoDB Atlas. It benchmarks
+tree-aware routing against flat and unconstrained baselines, proposes guarded
+structural mutations, promotes changes using a held-out paired test, measures
+causal contribution with mutation knockouts, and writes an offline replay.
+
+It targets the `darwin_evaluation` database by default and requires explicit
+`MONGODB_URI` and `OPENROUTER_API_KEY` environment variables. See
+[`evolution/README.md`](evolution/README.md) for setup and commands.

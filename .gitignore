@@ -11,6 +11,10 @@ node_modules
 dist
 dist-ssr
 *.local
+.venv-evolution/
+evolution/runs/
+__pycache__/
+*.pyc
 
 # Editor directories and files
 .vscode/*

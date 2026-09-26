@@ -1,0 +1,4 @@
+interface:
+  display_name: "Darwin Paper to Tool"
+  short_description: "Turn scientific papers into tested Darwin tool candidates"
+  default_prompt: "Interpret this paper and produce a tested Darwin tool candidate with evidence and uncertainties."

@@ -1,0 +1,56 @@
+{
+  "database": "darwin_evaluation",
+  "collections": {
+    "failures": {
+      "indexes": [
+        {"name": "trace_id_idx", "keys": {"trace_id": 1}},
+        {"name": "pattern_id_idx", "keys": {"pattern_id": 1}},
+        {"name": "genome_subset_idx", "keys": {"genome_id": 1, "subset": 1}},
+        {"name": "kind_generation_idx", "keys": {"kind": 1, "generation": 1}}
+      ]
+    },
+    "failure_patterns": {
+      "indexes": [
+        {"name": "resolution_occurrences_idx", "keys": {"resolution.status": 1, "occurrences": -1}},
+        {"name": "profiles_idx", "keys": {"profiles": 1}}
+      ],
+      "vector_index": {
+        "name": "nrr_vec",
+        "path": "embedding",
+        "dimensions": 1024,
+        "similarity": "cosine",
+        "filters": ["resolution.status", "profiles", "subsets"]
+      }
+    },
+    "nrr_recall_events": {
+      "indexes": [
+        {"name": "task_created_idx", "keys": {"task_id": 1, "created_at": -1}},
+        {"name": "patterns_idx", "keys": {"pattern_ids": 1}}
+      ]
+    },
+    "nrr_config": {
+      "seed_document": {
+        "_id": "darwin-nrr-v1",
+        "embedding_model": "voyage-3",
+        "embedding_dimensions": 1024,
+        "similarity_threshold": null,
+        "threshold_status": "requires_calibration",
+        "recall_k": 3,
+        "pitfall_token_budget": 120
+      }
+    },
+    "paper_tools": {
+      "indexes": [
+        {"name": "paper_status_idx", "keys": {"paper_id": 1, "status": 1}},
+        {"name": "artifact_idx", "keys": {"artifact_sha256": 1}}
+      ],
+      "search_index": "paper_tool_search"
+    },
+    "paper_tool_runs": {
+      "indexes": [
+        {"name": "tool_created_idx", "keys": {"tool_id": 1, "created_at": -1}},
+        {"name": "status_idx", "keys": {"status": 1}}
+      ]
+    }
+  }
+}
