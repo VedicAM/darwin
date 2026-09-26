@@ -1,0 +1,86 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/R1zDtpV4u2z79NnT4R6jx2hHjFg</id>
+  <title>arXiv Query: search_query=all:RNA OR all:consensus OR all:structure OR all:prediction&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-09-26T18:58:52Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:RNA+OR+(all:consensus+OR+(all:structure+OR+all:prediction))&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>807363</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/1502.05667v1</id>
+    <title>Towards de novo RNA 3D structure prediction</title>
+    <updated>2015-02-19T18:42:46Z</updated>
+    <link href="https://arxiv.org/abs/1502.05667v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1502.05667v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>RNA is a fundamental class of biomolecules that mediate a large variety of molecular processes within the cell. Computational algorithms can be of great help in the understanding of RNA structure-function relationship. One of the main challenges in this field is the development of structure-prediction algorithms, which aim at the prediction of the three-dimensional (3D) native fold from the sole knowledge of the sequence. In a recent paper, we have introduced a scoring function for RNA structure prediction. Here, we analyze in detail the performance of the method, we underline strengths and shortcomings, and we discuss the results with respect to state-of-the-art techniques. These observations provide a starting point for improving current methodologies, thus paving the way to the advances of more accurate approaches for RNA 3D structure prediction.</summary>
+    <category term="q-bio.BM" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.bio-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.chem-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.comp-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2015-02-19T18:42:46Z</published>
+    <arxiv:comment>Accepted for publication on RNA &amp; Disease</arxiv:comment>
+    <arxiv:primary_category term="q-bio.BM"/>
+    <arxiv:journal_ref>RNA &amp; Disease 2, e544 (2015)</arxiv:journal_ref>
+    <author>
+      <name>Sandro Bottaro</name>
+    </author>
+    <author>
+      <name>Francesco Di Palma</name>
+    </author>
+    <author>
+      <name>Giovanni Bussi</name>
+    </author>
+    <arxiv:doi>10.14800/rd.544</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.14800/rd.544" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1103.3032v1</id>
+    <title>Why Can't We Predict RNA Structure At Atomic Resolution?</title>
+    <updated>2011-03-15T20:40:15Z</updated>
+    <link href="https://arxiv.org/abs/1103.3032v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1103.3032v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>No existing algorithm can start with arbitrary RNA sequences and return the precise, three-dimensional structures that ensures their biological function. This chapter outlines current algorithms for automated RNA structure prediction (including our own FARNA-FARFAR), highlights their successes, and dissects their limitations, using a tetraloop and the sarcin/ricin motif as examples. The barriers to future advances are considered in light of three particular challenges: improving computational sampling, reducing reliance on experimentally solved structures, and avoiding coarse-grained representations of atomic-level interactions. To help meet these challenges and better understand the current state of the field, we propose an ongoing community-wide CASP-style experiment for evaluating the performance of current structure prediction algorithms.</summary>
+    <category term="q-bio.BM" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.bio-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.chem-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2011-03-15T20:40:15Z</published>
+    <arxiv:comment>K. Beauchamp &amp; P. Sripakdeevong are equally contributing authors. Submission for book: RNA 3D Structure Analysis and Prediction, editors: N. Leontis &amp; E. Westhof</arxiv:comment>
+    <arxiv:primary_category term="q-bio.BM"/>
+    <author>
+      <name>Kyle Beauchamp</name>
+    </author>
+    <author>
+      <name>Parin Sripakdeevong</name>
+    </author>
+    <author>
+      <name>Rhiju Das</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2511.02622v2</id>
+    <title>Machine Learning for RNA Secondary Structure Prediction: a review of current methods and challenges</title>
+    <updated>2026-05-18T20:22:37Z</updated>
+    <link href="https://arxiv.org/abs/2511.02622v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2511.02622v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Predicting the secondary structure of RNA is a core challenge in computational biology, essential for understanding molecular function and designing novel therapeutics. The field has evolved from foundational but accuracy-limited thermodynamic approaches to a new data-driven paradigm dominated by machine learning and deep learning. These models learn folding patterns directly from data, leading to significant performance gains. This review surveys the modern landscape of these methods, covering single-sequence, evolutionary-based, and hybrid models that blend machine learning with biophysics. A central theme is the field's "generalization crisis," where powerful models were found to fail on new RNA families, prompting a community-wide shift to stricter, homology-aware benchmarking. In response to the underlying challenge of data scarcity, RNA foundation models have emerged, learning from massive, unlabeled sequence corpora to improve generalization. Finally, we look ahead to the next set of major hurdles-including the accurate prediction of complex motifs like pseudoknots, scaling to kilobase-length transcripts, incorporating the chemical diversity of modified nucleotides, and shifting the prediction target from static structures to the dynamic ensembles that better capture biological function. We also highlight the need for a standardized, prospective benchmarking system to ensure unbiased validation and accelerate progress.</summary>
+    <category term="q-bio.BM" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.bio-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.comp-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-11-04T14:52:11Z</published>
+    <arxiv:comment>22 pages, 3 figures. Updated version of the article published in RNA 32(4):443-456 (2026); the Foundation Models section has been revised to reflect developments since publication. The remainder of the manuscript is unchanged apart from formatting</arxiv:comment>
+    <arxiv:primary_category term="q-bio.BM"/>
+    <arxiv:journal_ref>RNA 32(4): 443-456 (2026)</arxiv:journal_ref>
+    <author>
+      <name>Giuseppe Sacco</name>
+    </author>
+    <author>
+      <name>Giovanni Bussi</name>
+    </author>
+    <author>
+      <name>Guido Sanguinetti</name>
+    </author>
+    <arxiv:doi>10.1261/rna.080840.125</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1261/rna.080840.125" title="doi"/>
+  </entry>
+</feed>

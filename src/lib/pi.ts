@@ -52,6 +52,50 @@ export function isResponse(r: PiRecord): r is PiRecord & {
   return r.type === "response" && typeof r.command === "string";
 }
 
+/**
+ * Peels Pi's JSON-in-JSON error payload down to prose. `errorMessage` is a
+ * string holding `{error:{message:"<json string>",status}}`, so the useful text
+ * is two levels down. Keeps the first `status` seen (e.g. RESOURCE_EXHAUSTED).
+ */
+function unwrapErrorMessage(raw: string): { status?: string; message: string } {
+  let status: string | undefined;
+  let text = raw;
+  for (let depth = 0; depth < 4; depth += 1) {
+    let node: unknown;
+    try {
+      node = JSON.parse(text);
+    } catch {
+      break; // prose reached
+    }
+    const err = (node as { error?: { message?: unknown; status?: unknown } }).error;
+    if (!err || typeof err !== "object") break;
+    if (status === undefined && typeof err.status === "string") status = err.status;
+    if (typeof err.message !== "string") break;
+    text = err.message;
+  }
+  return { status, message: text.replace(/\s+/g, " ").trim() };
+}
+
+/**
+ * A model-level failure, e.g. a 429 or a bad key. Pi reports these as a
+ * `message_end` whose message carries `stopReason: "error"` and an
+ * `errorMessage`, and emits no `text_delta` at all — so without this the run
+ * just goes silent and looks like the agent hung. Distinct from a failed RPC
+ * `response` and from stderr.
+ */
+export function runError(r: PiRecord): string | null {
+  if (r.type !== "message_end") return null;
+  const m = r.message as
+    | { role?: string; stopReason?: string; errorMessage?: unknown }
+    | undefined;
+  if (m?.role !== "assistant" || m.stopReason !== "error") return null;
+
+  const raw = typeof m.errorMessage === "string" ? m.errorMessage : "";
+  if (!raw) return "the model returned an error with no message";
+  const { status, message } = unwrapErrorMessage(raw);
+  return `${status ? `model error (${status})` : "model error"}: ${message}`;
+}
+
 /** Returns the incremental assistant text for a `message_update`, else null. */
 export function textDelta(r: PiRecord): string | null {
   if (r.type !== "message_update") return null;

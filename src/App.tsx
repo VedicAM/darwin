@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Square, TriangleAlert, X } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Workspace } from "@/components/workspace/Workspace";
+import { useWorkspace } from "@/lib/workspace";
 import {
   getState,
   isActive,
@@ -13,6 +15,7 @@ import {
   onRecord,
   onStderr,
   prompt,
+  runError,
   stop,
   summarize,
   textDelta,
@@ -40,6 +43,28 @@ const DOT: Record<Status, string> = {
 
 type Turn = { role: "user" | "agent"; text: string };
 
+/** How many errors stay on screen. Older ones scroll off the top. */
+const MAX_ERRORS = 4;
+
+/**
+ * Pi's `error` field is only typed as `string`, but a rejection may carry a
+ * structured payload instead, so stringify anything unexpected rather than
+ * rendering "[object Object]".
+ */
+function describeError(err: unknown): string {
+  if (typeof err === "string") return err;
+  if (err === undefined || err === null) return "unknown error";
+  try {
+    return JSON.stringify(err);
+  } catch {
+    // Circular or BigInt-laden payloads cannot be stringified. Note the binding
+    // is required: a bare `catch` would leave `err` as the original value, and
+    // `String()` on a plain object yields a useless "[object Object]".
+    const tag = Object.prototype.toString.call(err).slice(8, -1);
+    return `${tag} value could not be serialised`;
+  }
+}
+
 // Deltas arrive one at a time, so the turn being streamed is the last one. If
 // the last turn is not an agent turn, this delta starts a fresh one.
 function appendDelta(turns: Turn[], delta: string): Turn[] {
@@ -48,22 +73,14 @@ function appendDelta(turns: Turn[], delta: string): Turn[] {
   return [...turns.slice(0, -1), { ...last, text: last.text + delta }];
 }
 
-function Thinking({ inline }: { inline: boolean }) {
-  // Cycles thinking. / thinking.. / thinking... The interval only exists while
-  // this is mounted, i.e. only while Pi is actually working.
-  const [dots, setDots] = useState(1);
-  useEffect(() => {
-    const id = setInterval(() => setDots((d) => (d % 3) + 1), 420);
-    return () => clearInterval(id);
-  }, []);
-
+function Thinking() {
+  // No visible affordance on purpose: the pulsing status dot, the stop button's
+  // shimmer and the composer placeholder already signal that Pi is working, so
+  // the transcript stays quiet. This remains as an sr-only live region so
+  // screen readers still hear the transition into and out of the busy state.
   return (
-    <span
-      role="status"
-      className={cn("text-muted-foreground inline whitespace-nowrap", inline && "ml-1")}
-    >
-      <span className="sr-only">Pi is working</span>
-      <span aria-hidden>thinking{".".repeat(dots)}</span>
+    <span role="status" className="sr-only">
+      Darwin is working
     </span>
   );
 }
@@ -73,48 +90,83 @@ function App() {
   const [status, setStatus] = useState<Status>("connecting");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [log, setLog] = useState<string[]>([]);
-  const [stderr, setStderr] = useState<string[]>([]);
+  const [errors, setErrors] = useState<string[]>([]);
   const [model, setModel] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const logId = useRef(0);
+  // The scientific workspace is fed from the same records the transcript reads,
+  // so there is exactly one event stream and no way for the two views to
+  // disagree about what the agent did.
+  const workspace = useWorkspace();
+  // `workspace` is a fresh object every render; only `feed` is stable, and only
+  // `feed` may be a listener dependency. Depending on the object would tear the
+  // Pi listeners down and back up on every keystroke.
+  const { feed: feedWorkspace } = workspace;
 
-  const handleRecord = useCallback((r: PiRecord) => {
-    const delta = textDelta(r);
-    if (delta !== null) {
-      setTurns((prev) => appendDelta(prev, delta));
-      setStatus("running");
-      return;
-    }
-
-    if (isResponse(r)) {
-      if (r.command === "get_state" && r.success) {
-        const m = r.data?.model as { id?: string; provider?: string } | undefined;
-        if (m?.id) setModel(`${m.provider}/${m.id}`);
-      }
-      if (r.command === "prompt") {
-        if (!r.success) setStatus("error");
-        else if (r.data?.disposition === "handled") setStatus("settled");
-        else setStatus("running");
-      }
-    }
-
-    // Checked after the active test so a retry or compaction turn flips back to
-    // running rather than leaving a stale "settled".
-    if (isActive(r)) setStatus("running");
-    else if ((TERMINAL_EVENTS as readonly string[]).includes(r.type)) setStatus("settled");
-
-    if (isLoggable(r)) setLog((prev) => [...prev, `${logId.current++} ${summarize(r)}`]);
-  }, []);
-
-  const handleStderr = useCallback((line: string) => {
-    setStderr((prev) => [...prev.slice(-19), line]);
-  }, []);
-
-  const handleExit = useCallback((reason: string) => {
+  // Every failure worth showing the user, newest last. Kept separate from the
+  // activity log because a collapsed <details> is not somewhere an error can hide.
+  const pushError = useCallback((msg: string) => {
+    setErrors((prev) => [...prev.slice(-(MAX_ERRORS - 1)), msg]);
     setStatus("error");
-    setStderr((prev) => [...prev, `pi exited: ${reason}`]);
   }, []);
+
+  const handleRecord = useCallback(
+    (r: PiRecord) => {
+      const delta = textDelta(r);
+      if (delta !== null) {
+        setTurns((prev) => appendDelta(prev, delta));
+        setStatus("running");
+        feedWorkspace(r);
+        return;
+      }
+
+      // A model-side failure (rate limit, bad key) arrives as a `message_end`
+      // with stopReason "error" and no text_delta, so it must be checked before
+      // anything else or the run just ends in silence.
+      const failure = runError(r);
+      if (failure !== null) pushError(failure);
+
+      if (isResponse(r)) {
+        if (r.command === "get_state" && r.success) {
+          const m = r.data?.model as { id?: string; provider?: string } | undefined;
+          if (m?.id) setModel(`${m.provider}/${m.id}`);
+        }
+        // A failed command carries the reason in `error`; it used to be dropped
+        // on the floor here, leaving only a red status dot.
+        if (!r.success) pushError(`pi ${r.command} failed: ${describeError(r.error)}`);
+        if (r.command === "prompt") {
+          if (r.success && r.data?.disposition === "handled") setStatus("settled");
+          else if (r.success) setStatus("running");
+        }
+      }
+
+      // Checked after the active test so a retry or compaction turn flips back to
+      // running rather than leaving a stale "settled".
+      if (isActive(r)) setStatus("running");
+      else if ((TERMINAL_EVENTS as readonly string[]).includes(r.type)) setStatus("settled");
+
+      if (isLoggable(r)) setLog((prev) => [...prev, `${logId.current++} ${summarize(r)}`]);
+      feedWorkspace(r);
+    },
+    [pushError, feedWorkspace],
+  );
+
+  const handleStderr = useCallback(
+    (line: string) => {
+      // Pi writes diagnostics to stderr; per AGENTS.md stdout is protocol only,
+      // so anything arriving here is a diagnostic, not a record.
+      pushError(line);
+    },
+    [pushError],
+  );
+
+  const handleExit = useCallback(
+    (reason: string) => {
+      pushError(`pi exited: ${reason}`);
+    },
+    [pushError],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -132,8 +184,7 @@ function App() {
       try {
         await getState();
       } catch (err) {
-        setStderr((prev) => [...prev, `could not reach pi: ${String(err)}`]);
-        setStatus("error");
+        pushError(`could not reach pi: ${describeError(err)}`);
       }
     })();
 
@@ -141,7 +192,7 @@ function App() {
       disposed = true;
       offs.forEach((off) => off());
     };
-  }, [handleRecord, handleStderr, handleExit]);
+  }, [handleRecord, handleStderr, handleExit, pushError]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -159,158 +210,223 @@ function App() {
     // render under the prompt before the first token arrives.
     setTurns((prev) => [...prev, { role: "user", text }, { role: "agent", text: "" }]);
     setLog([]);
+    // A fresh run should not inherit the previous run's errors.
+    setErrors([]);
     setStatus("running");
+    // One run, one workspace: artifacts from the last analysis are dropped so
+    // the panel describes the run in front of the user, not a pile of every run
+    // so far.
+    workspace.startRun(text);
     try {
       await prompt(text);
     } catch (err) {
-      setStatus("error");
-      setStderr((prev) => [...prev, String(err)]);
+      pushError(describeError(err));
     }
   }
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 py-8">
-          <div className="mt-auto">
-            {turns.length === 0 ? (
-              <p className="text-muted-foreground text-[15px]">
-                {ready
-                  ? "Ask Pi to read, explain, or search this repository."
-                  : "Connecting to Pi…"}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-5">
-                {turns.map((turn, i) => {
-                  const isUser = turn.role === "user";
-                  const thinking = !isUser && busy && i === turns.length - 1;
-                  // A turn is pushed empty on send; drop it if it never produced
-                  // any text and the run is over, so a failed prompt leaves no gap.
-                  if (!isUser && !turn.text && !thinking) return null;
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        "leading-relaxed whitespace-pre-wrap",
-                        isUser
-                          ? // A blue rule instead of a bubble. `self-start` keeps
-                            // the rule only as tall as the prompt, so a one-line
-                            // question does not get a full-height bar.
-                            "text-foreground self-start border-l-2 border-l-blue-500/70 pl-3 text-[14px] dark:border-l-blue-400/70"
-                          : "text-foreground text-[15px]",
-                      )}
-                    >
-                      <span className="sr-only">{isUser ? "You said: " : "Pi said: "}</span>
-                      {turn.text}
-                      {thinking ? <Thinking inline={turn.text.length > 0} /> : null}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <div ref={bottomRef} />
+    // Two panes split by a 1px rule: Pi on the left, the scientific workspace on
+    // the right. min-w-0 on each pane lets it shrink so the rule stays put
+    // instead of being shoved off-screen by wide content.
+    <main className="relative flex h-screen overflow-hidden bg-background text-foreground">
+      {/* titleBarStyle Overlay floats the traffic lights over the webview, so
+          the top strip is a drag handle and the panes pad below it. pt-12 keeps
+          the first line clear of the lights, which sit roughly 12px from the
+          top-left corner. This strip lives on <main> rather than in a pane so
+          it spans both of them, and z-10 is load-bearing: the panes are
+          positioned flex siblings, so an earlier absolute sibling would
+          otherwise paint underneath the left pane and swallow the drag. */}
+      <div
+        data-tauri-drag-region
+        className="absolute inset-x-0 top-0 z-10 h-9"
+      />
+      <section
+        aria-label="Pi conversation"
+        className="flex min-w-0 flex-1 flex-col"
+      >
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-12 pb-8">
+            <div className="mt-auto">
+              {turns.length === 0 ? (
+                <p className="text-muted-foreground text-[15px]">
+                  {ready
+                    ? "Ask Darwin to analyze your sequence."
+                    : "Connecting to Darwin..."}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-5">
+                  {turns.map((turn, i) => {
+                    const isUser = turn.role === "user";
+                    const thinking = !isUser && busy && i === turns.length - 1;
+                    // A turn is pushed empty on send; drop it if it never produced
+                    // any text and the run is over, so a failed prompt leaves no gap.
+                    if (!isUser && !turn.text && !thinking) return null;
+                    return (
+                      <div
+                        key={i}
+                        className={cn(
+                          "leading-relaxed whitespace-pre-wrap",
+                          isUser
+                            ? // A blue rule instead of a bubble. `self-start` keeps
+                              // the rule only as tall as the prompt, so a one-line
+                              // question does not get a full-height bar.
+                              "text-foreground self-start border-l-2 border-l-blue-500/70 pl-3 text-[14px] dark:border-l-blue-400/70"
+                            : "text-foreground text-[15px]",
+                        )}
+                      >
+                        <span className="sr-only">{isUser ? "You said: " : "Darwin said: "}</span>
+                        {turn.text}
+                        {thinking ? <Thinking /> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="shrink-0">
-        <div className="mx-auto w-full max-w-2xl px-6 pt-2 pb-4">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send();
-            }}
-          >
-            {/* No horizontal padding here on purpose: it lives on the Textarea
-                below so that one is full-bleed and its selection highlight
-                shares this box's corner radius, rather than being a hard
-                rectangle that collides with the curve. The button supplies its
-                own right inset. Textarea padding must also exceed the radius
-                (--radius, 10px) or the curve clips the first glyph. */}
-            <div className="focus-within:border-ring focus-within:ring-ring/50 flex items-center gap-2 rounded-lg border border-input py-1.5 transition-colors focus-within:ring-3">
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                placeholder={busy ? "Pi is working…" : "Message Pi"}
-                disabled={!ready}
-                rows={1}
-                className="focus-visible:border-ring min-h-5 flex-1 resize-none rounded-lg border-0 bg-transparent px-3 py-1 focus-visible:ring-0 dark:bg-transparent"
-              />
-              {/* Always mounted so the transition can run, and always occupying
-                  its slot so the textarea never changes width. */}
-              <Button
-                type={busy ? "button" : "submit"}
-                size="icon-sm"
-                aria-label={busy ? "Stop Pi" : "Send"}
-                tabIndex={action ? 0 : -1}
-                onClick={
-                  busy
-                    ? () => {
-                        setStatus("connecting");
-                        void stop().catch((err) => setStderr((prev) => [...prev, String(err)]));
-                      }
-                    : undefined
-                }
-                className={cn(
-                  // `scale` is a standalone CSS property in Tailwind v4, not
-                  // `transform`, so it must be listed here or the size snaps
-                  // while only the opacity fades.
-                  "relative mr-3 shrink-0 overflow-hidden rounded-lg duration-200 ease-out transition-[opacity,scale]",
-                  action ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0",
-                )}
+        {errors.length > 0 ? (
+          <div className="shrink-0">
+            <div className="mx-auto w-full max-w-2xl px-6 pt-3">
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="border-destructive/40 bg-destructive/8 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2"
               >
-                {/* Idle animation while waiting on the model. */}
-                {busy ? (
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg"
-                  >
-                    <span className="from-transparent via-primary/25 animate-wait absolute inset-y-0 -left-1/2 w-1/2 bg-linear-to-r to-transparent" />
+                <TriangleAlert aria-hidden className="mt-px size-4 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  {errors.map((line, i) => (
+                    <p
+                      key={i}
+                      className="font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap"
+                    >
+                      {line}
+                    </p>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setErrors([])}
+                  aria-label="Dismiss errors"
+                  className="hover:bg-destructive/15 -mt-0.5 -mr-1 shrink-0 rounded-sm p-1 transition-colors"
+                >
+                  <X aria-hidden className="size-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="shrink-0">
+          <div className="mx-auto w-full max-w-2xl px-6 pt-2 pb-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send();
+              }}
+            >
+              {/* No horizontal padding here on purpose: it lives on the Textarea
+                  below so that one is full-bleed and its selection highlight
+                  shares this box's corner radius, rather than being a hard
+                  rectangle that collides with the curve. The button supplies its
+                  own right inset. Textarea padding must also exceed the radius
+                  (--radius, 10px) or the curve clips the first glyph. */}
+              <div className="focus-within:border-ring focus-within:ring-ring/50 flex items-center gap-2 rounded-lg border border-input py-1.5 transition-colors focus-within:ring-3">
+                <Textarea
+                  value={input}
+                  onChange={(e) => setInput(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  placeholder={
+                    busy ? "Darwin is working..." : "Visualize this protein sequence for me"
+                  }
+                  disabled={!ready}
+                  rows={1}
+                  className="focus-visible:border-ring min-h-5 flex-1 resize-none rounded-lg border-0 bg-transparent px-3 py-1 focus-visible:ring-0 dark:bg-transparent"
+                />
+                {/* Always mounted so the transition can run, and always occupying
+                    its slot so the textarea never changes width. */}
+                <Button
+                  type={busy ? "button" : "submit"}
+                  size="icon-sm"
+                  aria-label={busy ? "Stop Darwin" : "Send"}
+                  tabIndex={action ? 0 : -1}
+                  onClick={
+                    busy
+                      ? () => {
+                          setStatus("connecting");
+                          void stop().catch((err) => pushError(describeError(err)));
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    // `scale` is a standalone CSS property in Tailwind v4, not
+                    // `transform`, so it must be listed here or the size snaps
+                    // while only the opacity fades.
+                    "relative mr-3 shrink-0 overflow-hidden rounded-lg duration-200 ease-out transition-[opacity,scale]",
+                    action ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0",
+                  )}
+                >
+                  {/* Idle animation while waiting on the model. */}
+                  {busy ? (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg"
+                    >
+                      <span className="from-transparent via-primary/25 animate-wait absolute inset-y-0 -left-1/2 w-1/2 bg-linear-to-r to-transparent" />
+                    </span>
+                  ) : null}
+                  <span className="relative">
+                    <span
+                      key={busy ? "stop" : "send"}
+                      className="starting:scale-75 starting:opacity-0 duration-200 transition-[opacity,scale]"
+                    >
+                      {busy ? <Square className="fill-current" /> : <ArrowUp />}
+                    </span>
+                  </span>
+                </Button>
+              </div>
+            </form>
+
+            <details className="group relative mt-3">
+              <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-xs select-none [&::-webkit-details-marker]:hidden">
+                <span className={`size-1.5 rounded-full ${DOT[status]}`} />
+                <span>{STATUS_LABEL[status]}</span>
+                {model ? <span className="truncate">{model}</span> : null}
+                {log.length || errors.length ? (
+                  <span className="ml-auto shrink-0">
+                    {log.length ? `${log.length} events` : ""}
+                    {errors.length ? `${log.length ? " · " : ""}${errors.length} errors` : ""}
                   </span>
                 ) : null}
-                <span className="relative">
-                  <span
-                    key={busy ? "stop" : "send"}
-                    className="starting:scale-75 starting:opacity-0 duration-200 transition-[opacity,scale]"
-                  >
-                    {busy ? <Square className="fill-current" /> : <ArrowUp />}
-                  </span>
-                </span>
-              </Button>
-            </div>
-          </form>
-
-          <details className="group relative mt-3">
-            <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-xs select-none [&::-webkit-details-marker]:hidden">
-              <span className={`size-1.5 rounded-full ${DOT[status]}`} />
-              <span>{STATUS_LABEL[status]}</span>
-              {model ? <span className="truncate">{model}</span> : null}
-              {log.length || stderr.length ? (
-                <span className="ml-auto shrink-0">
-                  {log.length ? `${log.length} events` : ""}
-                  {stderr.length ? `${log.length ? " · " : ""}${stderr.length} stderr` : ""}
-                </span>
-              ) : null}
-            </summary>
-            <div className="bg-popover text-popover-foreground absolute right-0 bottom-full z-10 mb-2 max-h-64 w-full overflow-y-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed">
-              {log.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-              {stderr.map((line, i) => (
-                <div key={`e${i}`} className="text-destructive">
-                  {line}
-                </div>
-              ))}
-            </div>
-          </details>
+              </summary>
+              <div className="bg-popover text-popover-foreground absolute right-0 bottom-full z-10 mb-2 max-h-64 w-full overflow-y-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed">
+                {log.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </div>
+            </details>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* Decorative divider; --border is the theme subtle grey. */}
+      <div aria-hidden="true" className="bg-border w-px shrink-0" />
+
+      <Workspace
+        artifacts={workspace.items}
+        selected={workspace.selected}
+        workflow={workspace.workflow}
+        hasRun={workspace.state.run > 0}
+        onSelect={workspace.select}
+        onAdd={workspace.addArtifact}
+      />
     </main>
   );
 }

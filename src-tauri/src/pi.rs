@@ -18,10 +18,25 @@ use std::thread;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
-/// Read-only tool allowlist. Deliberately excludes `bash`, `edit`, and `write`
-/// so the webview cannot drive shell execution or mutate the workspace.
-/// Override with `DARWIN_PI_TOOLS` once you want a different posture.
-const DEFAULT_TOOLS: &str = "read,ls,grep,find";
+/// Tool allowlist. Deliberately excludes `bash`, `edit`, and `write` so the
+/// webview cannot drive shell execution or mutate the workspace.
+///
+/// `research.arxiv` comes from the Pi extension in `.pi/extensions/`. It holds
+/// no network capability of its own: it sends a capability request over the
+/// harness socket (`bridge.rs`) and Rust performs the request and the parse.
+/// Allowlisting it grants a *harness call*, not an HTTP client, which is the
+/// whole point.
+///
+/// `github_search` is a second extension in the same directory, the
+/// `research.github` capability, and it is still a direct read-only GET against
+/// `api.github.com` from inside the agent process. It is left in place here
+/// because it is pre-existing and outside this change, but it is the weaker of
+/// the two patterns: it widens the agent's own network reach, where
+/// `research.arxiv` does not. Migrating it onto the same socket is the obvious
+/// follow-up.
+///
+/// Override with `DARWIN_PI_TOOLS` for a different posture.
+const DEFAULT_TOOLS: &str = "read,ls,grep,find,research.arxiv,github_search";
 
 struct Running {
     child: Child,
@@ -39,6 +54,10 @@ impl Running {
 #[derive(Default)]
 pub struct PiSession {
     running: Mutex<Option<Running>>,
+    /// Where the harness socket lives, once `setup` has opened it. Handed to
+    /// the child as `DARWIN_HARNESS_SOCKET` so a Pi extension can reach the
+    /// harness without having to know where the app keeps its data.
+    harness_socket: Mutex<Option<PathBuf>>,
 }
 
 impl PiSession {
@@ -53,6 +72,7 @@ impl PiSession {
     fn ensure_running(
         slot: &mut Option<Running>,
         app: &AppHandle,
+        harness_socket: Option<&Path>,
     ) -> Result<(), String> {
         let alive = match slot.as_mut() {
             Some(r) => matches!(r.child.try_wait(), Ok(None)),
@@ -62,13 +82,14 @@ impl PiSession {
             return Ok(());
         }
         *slot = None;
-        *slot = Some(spawn(app)?);
+        *slot = Some(spawn(app, harness_socket)?);
         Ok(())
     }
 
     pub fn prompt(&self, app: &AppHandle, message: String) -> Result<(), String> {
         let mut slot = self.lock()?;
-        Self::ensure_running(&mut slot, app)?;
+        let socket = self.socket_path();
+        Self::ensure_running(&mut slot, app, socket.as_deref())?;
         let running = slot.as_mut().expect("ensure_running spawns when empty");
         let id = running.next_id();
         write_record(&mut running.stdin, &json!({ "id": id, "type": "prompt", "message": message }))
@@ -76,10 +97,27 @@ impl PiSession {
 
     pub fn get_state(&self, app: &AppHandle) -> Result<(), String> {
         let mut slot = self.lock()?;
-        Self::ensure_running(&mut slot, app)?;
+        let socket = self.socket_path();
+        Self::ensure_running(&mut slot, app, socket.as_deref())?;
         let running = slot.as_mut().expect("ensure_running spawns when empty");
         let id = running.next_id();
         write_record(&mut running.stdin, &json!({ "id": id, "type": "get_state" }))
+    }
+
+    /// Record the harness socket path so spawned children inherit it.
+    ///
+    /// Called from `setup` once the bridge is listening. Storing it here rather
+    /// than in the process environment means a `pi` launched by hand has no
+    /// socket to find and no way to reach the harness.
+    pub fn set_harness_socket(&self, path: PathBuf) {
+        match self.harness_socket.lock() {
+            Ok(mut slot) => *slot = Some(path),
+            Err(_) => {}
+        }
+    }
+
+    fn socket_path(&self) -> Option<PathBuf> {
+        self.harness_socket.lock().ok().and_then(|p| p.clone())
     }
 
     /// Terminates the child and clears the slot. Closes stdin first so Pi can
@@ -95,20 +133,29 @@ impl PiSession {
     }
 }
 
-fn spawn(app: &AppHandle) -> Result<Running, String> {
+fn spawn(app: &AppHandle, harness_socket: Option<&Path>) -> Result<Running, String> {
     let binary = std::env::var("DARWIN_PI_BIN").unwrap_or_else(|_| "pi".to_string());
     let tools = std::env::var("DARWIN_PI_TOOLS").unwrap_or_else(|_| DEFAULT_TOOLS.to_string());
     let workspace = workspace_dir();
 
-    let mut child = Command::new(&binary)
-        .current_dir(&workspace)
+    let mut cmd = Command::new(&binary);
+    cmd.current_dir(&workspace)
         .args(["--mode", "rpc", "--no-session"])
         .args(["--tools", &tools])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // The only way Pi reaches the harness. Set on the child rather than in the
+    // desktop app's own environment, so a `pi` started outside Darwin finds no
+    // socket and cannot call the harness.
+    if let Some(path) = harness_socket {
+        cmd.env(crate::bridge::SOCKET_ENV, path);
+    }
+
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("could not start `{binary}` ({e}). Is Pi installed and on PATH? Set DARWIN_PI_BIN to override."))?;
+
 
     let stdin = child
         .stdin

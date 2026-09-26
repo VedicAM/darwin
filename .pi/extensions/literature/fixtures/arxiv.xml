@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<entry>
+    <id>http://arxiv.org/abs/2001.04020v1</id>
+    <title>LinearFold: linear-time approximate RNA folding by 5'-to-3' dynamic programming and beam search</title>
+    <updated>2019-12-22T00:03:23Z</updated>
+    <link href="https://arxiv.org/abs/2001.04020v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2001.04020v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Motivation: Predicting the secondary structure of an RNA sequence is useful in many applications. Existing algorithms (based on dynamic programming) suffer from a major limitation: their runtimes scale cubically with the RNA length, and this slowness limits their use in genome-wide applications.
+  Results: We present a novel alternative $O(n^3)$-time dynamic programming algorithm for RNA folding that is amenable to heuristics that make it run in $O(n)$ time and $O(n)$ space, while producing a high-quality approximation to the optimal solution. Inspired by incremental parsing for context-free grammars in computational linguistics, our alternative dynamic programming algorithm scans the sequence in a left-to-right (5'-to-3') direction rather than in a bottom-up fashion, which allows us to employ the effective beam pruning heuristic. Our work, though inexact, is the first RNA folding algorithm to achieve linear runtime (and linear space) without imposing constraints on the output structure. Surprisingly, our approximate search results in even higher overall accuracy on a diverse database of sequences with known structures. More interestingly, it leads to significantly more accurate predictions on the longest sequence families in that database (16S and 23S Ribosomal RNAs), as well as improved accuracies for long-range base pairs (500+ nucleotides apart), both of which are well known to be challenging for the current models.
+  Availability: Our source code is available at https://github.com/LinearFold/LinearFold, and our webserver is at http://linearfold.org (sequence limit: 100,000nt).</summary>
+    <category term="q-bio.BM" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.DS" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.CO" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.bio-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="q-bio.QM" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2019-12-22T00:03:23Z</published>
+    <arxiv:comment>10 pages main text (8 figures); 5 pages supplementary information (7 figures). In Proceedings of ISMB 2019</arxiv:comment>
+    <arxiv:primary_category term="q-bio.BM"/>
+    <arxiv:journal_ref>Bioinformatics, Volume 35, Issue 14, July 2019, Pages i295--i304</arxiv:journal_ref>
+    <author>
+      <name>Liang Huang</name>
+    </author>
+    <author>
+      <name>He Zhang</name>
+    </author>
+    <author>
+      <name>Dezhong Deng</name>
+    </author>
+    <author>
+      <name>Kai Zhao</name>
+    </author>
+    <author>
+      <name>Kaibo Liu</name>
+    </author>
+    <author>
+      <name>David A. Hendrix</name>
+    </author>
+    <author>
+      <name>David H. Mathews</name>
+    </author>
+    <arxiv:doi>10.1093/bioinformatics/btz375</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1093/bioinformatics/btz375" title="doi"/>
+  </entry>
+<entry>
+    <id>http://arxiv.org/abs/2001.04020v1</id>
+    <title>Folding &amp; binding: a &lt;study&gt; of 5'-to-3' dynamics</title>
+    <updated>2019-12-22T00:03:23Z</updated>
+    <link href="https://arxiv.org/abs/2001.04020v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2001.04020v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Motivation: Predicting the secondary structure of an RNA sequence is useful in many applications. Existing algorithms (based on dynamic programming) suffer from a major limitation: their runtimes scale cubically with the RNA length, and this slowness limits their use in genome-wide applications.
+  Results: We present a novel alternative $O(n^3)$-time dynamic programming algorithm for RNA folding that is amenable to heuristics that make it run in $O(n)$ time and $O(n)$ space, while producing a high-quality approximation to the optimal solution. Inspired by incremental parsing for context-free grammars in computational linguistics, our alternative dynamic programming algorithm scans the sequence in a left-to-right (5'-to-3') direction rather than in a bottom-up fashion, which allows us to employ the effective beam pruning heuristic. Our work, though inexact, is the first RNA folding algorithm to achieve linear runtime (and linear space) without imposing constraints on the output structure. Surprisingly, our approximate search results in even higher overall accuracy on a diverse database of sequences with known structures. More interestingly, it leads to significantly more accurate predictions on the longest sequence families in that database (16S and 23S Ribosomal RNAs), as well as improved accuracies for long-range base pairs (500+ nucleotides apart), both of which are well known to be challenging for the current models.
+  Availability: Our source code is available at https://github.com/LinearFold/LinearFold, and our webserver is at http://linearfold.org (sequence limit: 100,000nt).</summary>
+    <category term="q-bio.BM" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.DS" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.CO" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.bio-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="q-bio.QM" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2019-12-22T00:03:23Z</published>
+    <arxiv:comment>10 pages main text (8 figures); 5 pages supplementary information (7 figures). In Proceedings of ISMB 2019</arxiv:comment>
+    <arxiv:journal_ref>Bioinformatics, Volume 35, Issue 14, July 2019, Pages i295--i304</arxiv:journal_ref>
+    <author>
+      <name>Liang Huang</name>
+    </author>
+    <author>
+      <name>He Zhang</name>
+    </author>
+    <author>
+      <name>Dezhong Deng</name>
+    </author>
+    <author>
+      <name>Kai Zhao</name>
+    </author>
+    <author>
+      <name>Kaibo Liu</name>
+    </author>
+    <author>
+      <name>David A. Hendrix</name>
+    </author>
+    <author>
+      <name>David H. Mathews</name>
+    </author>
+    <arxiv:doi>10.1093/bioinformatics/btz375</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1093/bioinformatics/btz375" title="doi"/>
+  </entry>
+</feed>

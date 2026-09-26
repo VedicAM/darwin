@@ -1,0 +1,385 @@
+{
+  "version": "6.9",
+  "hitCount": 98,
+  "nextCursorMark": "AoIIQLzdkCg1NTc3OTI5Ng==",
+  "nextPageUrl": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=LinearFold+RNA&cursorMark=AoIIQLzdkCg1NTc3OTI5Ng%3D%3D&resultType=core&pageSize=1&format=json",
+  "request": {
+    "queryString": "LinearFold RNA",
+    "resultType": "core",
+    "cursorMark": "*",
+    "pageSize": 1,
+    "sort": "",
+    "synonym": false
+  },
+  "resultList": {
+    "result": [
+      {
+        "id": "42295831",
+        "source": "MED",
+        "pmid": "42295831",
+        "pmcid": "PMC13282080",
+        "fullTextIdList": {
+          "fullTextId": [
+            "PMC13282080"
+          ]
+        },
+        "doi": "10.1093/bioinformatics/btag295",
+        "title": "LinearCapR: linear-time computation of per-nucleotide structural-context probabilities of RNA without base-pair span limits.",
+        "authorString": "Otagaki T, Hosokawa H, Fukunaga T, Iwakiri J, Terai G, Asai K.",
+        "authorList": {
+          "author": [
+            {
+              "fullName": "Otagaki T",
+              "lastName": "Otagaki",
+              "firstName": "Takumi",
+              "initials": "T",
+              "authorId": {
+                "type": "ORCID",
+                "value": "0009-0004-7123-9585"
+              },
+              "authorAffiliationDetailsList": {
+                "authorAffiliation": [
+                  {
+                    "affiliation": "The Department of Computational Biology and Medical Sciences (CBMS), The University of Tokyo, Chiba, 277-8561, Japan."
+                  }
+                ]
+              }
+            },
+            {
+              "fullName": "Hosokawa H",
+              "lastName": "Hosokawa",
+              "firstName": "Hiroaki",
+              "initials": "H",
+              "authorAffiliationDetailsList": {
+                "authorAffiliation": [
+                  {
+                    "affiliation": "The Department of Computational Biology and Medical Sciences (CBMS), The University of Tokyo, Chiba, 277-8561, Japan."
+                  }
+                ]
+              }
+            },
+            {
+              "fullName": "Fukunaga T",
+              "lastName": "Fukunaga",
+              "firstName": "Tsukasa",
+              "initials": "T",
+              "authorId": {
+                "type": "ORCID",
+                "value": "0000-0003-4442-6049"
+              },
+              "authorAffiliationDetailsList": {
+                "authorAffiliation": [
+                  {
+                    "affiliation": "Waseda Institute for Advanced Study, Waseda University, Tokyo, 169-0051, Japan."
+                  }
+                ]
+              }
+            },
+            {
+              "fullName": "Iwakiri J",
+              "lastName": "Iwakiri",
+              "firstName": "Junichi",
+              "initials": "J",
+              "authorId": {
+                "type": "ORCID",
+                "value": "0000-0002-4611-2142"
+              },
+              "authorAffiliationDetailsList": {
+                "authorAffiliation": [
+                  {
+                    "affiliation": "The Department of Computational Biology and Medical Sciences (CBMS), The University of Tokyo, Chiba, 277-8561, Japan."
+                  }
+                ]
+              }
+            },
+            {
+              "fullName": "Terai G",
+              "lastName": "Terai",
+              "firstName": "Goro",
+              "initials": "G",
+              "authorId": {
+                "type": "ORCID",
+                "value": "0000-0002-1059-2519"
+              },
+              "authorAffiliationDetailsList": {
+                "authorAffiliation": [
+                  {
+                    "affiliation": "The Department of Computational Biology and Medical Sciences (CBMS), The University of Tokyo, Chiba, 277-8561, Japan."
+                  }
+                ]
+              }
+            },
+            {
+              "fullName": "Asai K",
+              "lastName": "Asai",
+              "firstName": "Kiyoshi",
+              "initials": "K",
+              "authorId": {
+                "type": "ORCID",
+                "value": "0000-0003-0909-4982"
+              },
+              "authorAffiliationDetailsList": {
+                "authorAffiliation": [
+                  {
+                    "affiliation": "The Department of Computational Biology and Medical Sciences (CBMS), The University of Tokyo, Chiba, 277-8561, Japan."
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "authorIdList": {
+          "authorId": [
+            {
+              "type": "ORCID",
+              "value": "0000-0002-1059-2519"
+            },
+            {
+              "type": "ORCID",
+              "value": "0000-0002-4611-2142"
+            },
+            {
+              "type": "ORCID",
+              "value": "0000-0003-0909-4982"
+            },
+            {
+              "type": "ORCID",
+              "value": "0000-0003-4442-6049"
+            },
+            {
+              "type": "ORCID",
+              "value": "0009-0004-7123-9585"
+            }
+          ]
+        },
+        "dataLinksTagsList": {
+          "dataLinkstag": [
+            "supporting_data"
+          ]
+        },
+        "journalInfo": {
+          "issue": "6",
+          "volume": "42",
+          "journalIssueId": 4205144,
+          "dateOfPublication": "2026 Jun",
+          "monthOfPublication": 6,
+          "yearOfPublication": 2026,
+          "journal": {
+            "medlineAbbreviation": "Bioinformatics",
+            "title": "Bioinformatics (Oxford, England)",
+            "essn": "1367-4811",
+            "issn": "1367-4803",
+            "nlmid": "9808944",
+            "isoabbreviation": "Bioinformatics"
+          },
+          "printPublicationDate": "2026-06-01"
+        },
+        "pubYear": "2026",
+        "pageInfo": "btag295",
+        "abstractText": "<h4>Motivation</h4>RNA molecules adopt dynamic ensembles of secondary structures, where the local structural context of each nucleotide-such as whether it resides in a stem or a specific type of loop-strongly shapes molecular interactions and regulatory function. Structural-context probabilities therefore provide a more functionally informative view of RNA folding than the minimum free energy structures or base-pairing probabilities. However, existing tools either require O(N3) time or employ span-restricted approximations that omit long-range base-pairs, limiting their applicability to large and biologically important RNAs.<h4>Results</h4>We introduce LinearCapR, enabling linear-time, span-unrestricted computation of structural-context marginalized probabilities, using beam-pruned Stochastic Context Free Grammar-based computation. LinearCapR retains global ensemble features lost by span-limited methods and yields superior predictive power on bpRNA-1m(90) dataset, especially for multiloops and exterior regions, as well as long-distance stems. LinearCapR supports analysis of long RNAs, demonstrated on the full genome of SARS-CoV-2. LinearCapR provides the first base-pair-span-unrestricted, linear-time framework for RNA structural-context analysis, retaining key thermodynamic ensemble features essential for functional interpretation. It enables large-scale studies of viral genomes, long non-coding RNAs, and downstream analyses such as RNA-binding protein site prediction.<h4>Availability and implementation</h4>The source code of LinearCapR is available at https://github.com/hoget157/LinearCapR. The archived software release used in this work is available at Zenodo: https://doi.org/10.5281/zenodo.19450645.",
+        "affiliation": "The Department of Computational Biology and Medical Sciences (CBMS), The University of Tokyo, Chiba, 277-8561, Japan.",
+        "publicationStatus": "ppublish",
+        "language": "eng",
+        "pubModel": "Print",
+        "pubTypeList": {
+          "pubType": [
+            "Research Support, Non-U.S. Gov't",
+            "research-article",
+            "Journal Article"
+          ]
+        },
+        "grantsList": {
+          "grant": [
+            {
+              "agency": "Japan Society For The Promotion of Science (JSPS) KAKENHI",
+              "grantId": "JP22H04925",
+              "orderIn": 0
+            },
+            {
+              "agency": "Japan Society For The Promotion of Science (JSPS) KAKENHI",
+              "grantId": "JP24H00737",
+              "orderIn": 0
+            },
+            {
+              "agency": "Japan Society For The Promotion of Science (JSPS) KAKENHI",
+              "grantId": "JP23K28183",
+              "orderIn": 0
+            },
+            {
+              "agency": "Japan Science and Technology Agency (JST) CREST",
+              "grantId": "JPMJCR23N1",
+              "orderIn": 0
+            }
+          ]
+        },
+        "meshHeadingList": {
+          "meshHeading": [
+            {
+              "majorTopic_YN": "Y",
+              "descriptorName": "RNA",
+              "meshQualifierList": {
+                "meshQualifier": [
+                  {
+                    "majorTopic_YN": "N",
+                    "abbreviation": "CH",
+                    "qualifierName": "chemistry"
+                  }
+                ]
+              }
+            },
+            {
+              "majorTopic_YN": "Y",
+              "descriptorName": "RNA, Viral",
+              "meshQualifierList": {
+                "meshQualifier": [
+                  {
+                    "majorTopic_YN": "N",
+                    "abbreviation": "GE",
+                    "qualifierName": "genetics"
+                  },
+                  {
+                    "majorTopic_YN": "N",
+                    "abbreviation": "CH",
+                    "qualifierName": "chemistry"
+                  }
+                ]
+              }
+            },
+            {
+              "majorTopic_YN": "N",
+              "descriptorName": "Probability"
+            },
+            {
+              "majorTopic_YN": "Y",
+              "descriptorName": "Computational Biology",
+              "meshQualifierList": {
+                "meshQualifier": [
+                  {
+                    "majorTopic_YN": "N",
+                    "abbreviation": "MT",
+                    "qualifierName": "methods"
+                  }
+                ]
+              }
+            },
+            {
+              "majorTopic_YN": "N",
+              "descriptorName": "Nucleic Acid Conformation"
+            },
+            {
+              "majorTopic_YN": "N",
+              "descriptorName": "Base Pairing"
+            },
+            {
+              "majorTopic_YN": "Y",
+              "descriptorName": "Software"
+            },
+            {
+              "majorTopic_YN": "N",
+              "descriptorName": "RNA Folding"
+            },
+            {
+              "majorTopic_YN": "N",
+              "descriptorName": "SARS-CoV-2",
+              "meshQualifierList": {
+                "meshQualifier": [
+                  {
+                    "majorTopic_YN": "N",
+                    "abbreviation": "GE",
+                    "qualifierName": "genetics"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "chemicalList": {
+          "chemical": [
+            {
+              "name": "RNA",
+              "registryNumber": "63231-63-0"
+            },
+            {
+              "name": "RNA, Viral",
+              "registryNumber": "0"
+            }
+          ]
+        },
+        "subsetList": {
+          "subset": [
+            {
+              "code": "IM",
+              "name": "Index Medicus"
+            }
+          ]
+        },
+        "fullTextUrlList": {
+          "fullTextUrl": [
+            {
+              "availability": "Subscription required",
+              "availabilityCode": "S",
+              "documentStyle": "doi",
+              "site": "DOI",
+              "url": "https://doi.org/10.1093/bioinformatics/btag295"
+            },
+            {
+              "availability": "Open access",
+              "availabilityCode": "OA",
+              "documentStyle": "html",
+              "site": "Europe_PMC",
+              "url": "https://europepmc.org/articles/PMC13282080"
+            },
+            {
+              "availability": "Open access",
+              "availabilityCode": "OA",
+              "documentStyle": "pdf",
+              "site": "Europe_PMC",
+              "url": "https://europepmc.org/articles/PMC13282080?pdf=render"
+            }
+          ]
+        },
+        "commentCorrectionList": {
+          "commentCorrection": [
+            {
+              "source": "PPR",
+              "id": "PPR1229893",
+              "type": "Preprint in",
+              "note": "Link created based on a title-first author match",
+              "orderIn": 10002
+            }
+          ]
+        },
+        "isOpenAccess": "Y",
+        "inEPMC": "Y",
+        "inPMC": "Y",
+        "citedByCount": 0,
+        "hasReferences": "Y",
+        "hasTextMinedTerms": "Y",
+        "hasDbCrossReferences": "N",
+        "hasPDF": "Y",
+        "hasBook": "N",
+        "hasSuppl": "Y",
+        "hasLabsLinks": "N",
+        "hasData": "Y",
+        "license": "cc by",
+        "authMan": "N",
+        "epmcAuthMan": "N",
+        "nihAuthMan": "N",
+        "hasTMAccessionNumbers": "Y",
+        "tmAccessionTypeList": {
+          "accessionType": [
+            "refseq",
+            "doi"
+          ]
+        },
+        "dateOfCompletion": "2026-06-20",
+        "dateOfCreation": "2026-06-15",
+        "dateOfRevision": "2026-09-22",
+        "firstPublicationDate": "2026-06-01",
+        "firstIndexDate": "2026-06-16",
+        "fullTextReceivedDate": "2026-06-26",
+        "hasEvaluations": "N"
+      }
+    ]
+  }
+}

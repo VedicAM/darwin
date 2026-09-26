@@ -1,0 +1,46 @@
+{
+	"total_count": 14,
+	"incomplete_results": false,
+	"items": [
+		{
+			"full_name": "LinearFold/LinearFold",
+			"name": "LinearFold",
+			"owner": {
+				"login": "LinearFold"
+			},
+			"description": "The new source code of the LinearFold, linear-time prediction for RNA secondary structures",
+			"html_url": "https://github.com/LinearFold/LinearFold",
+			"default_branch": "master",
+			"language": "C++",
+			"stargazers_count": 200,
+			"forks_count": 54,
+			"open_issues_count": 10,
+			"updated_at": "2026-09-01T04:08:56Z",
+			"topics": [],
+			"license": {
+				"spdx_id": "NOASSERTION"
+			},
+			"archived": false,
+			"fork": false
+		},
+		{
+			"full_name": "abentu0101/LinearFold",
+			"name": "LinearFold",
+			"owner": {
+				"login": "abentu0101"
+			},
+			"description": "The source code of the LinearFold project, a linear-time RNA secondary structure prediction algorithm. ",
+			"html_url": "https://github.com/abentu0101/LinearFold",
+			"default_branch": "master",
+			"language": "Objective-C",
+			"stargazers_count": 8,
+			"forks_count": 3,
+			"open_issues_count": 0,
+			"updated_at": "2024-06-29T01:45:19Z",
+			"topics": [],
+			"license": null,
+			"archived": false,
+			"fork": false
+		}
+	]
+}

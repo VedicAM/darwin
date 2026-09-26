@@ -6,9 +6,22 @@ Tauri v2 desktop app that drives the [Pi coding agent](https://pi.dev) as a chil
 process. React 19 + TypeScript + Tailwind v4 + shadcn/ui on a Rust backend.
 Frontend at `src/`, Rust at `src-tauri/`. Identifier `com.vedicam.darwin`.
 
+It also carries a self-extending RNA tool harness: it installs hash-pinned
+scientific Python packages into managed venvs and dispatches capability requests
+to them, currently folding RNA with LinearFold. See "How the tool harness is
+wired" below. Pi is the *assistant* half and never gains tool access beyond
+`read,ls,grep,find`; the harness is the *execution* half and owns all network
+and filesystem writes.
+
 **There is no test runner, linter, or formatter configured.** Don't invent
 `npm test` / `npm run lint`. No CI either. Keep this file to the things scripts
 can't express; the command list lives in `package.json` and `README.md`.
+
+The Rust side *does* have real tests: `cargo test` in `src-tauri/` runs 31 unit
+tests, and `cargo test --test vertical -- --ignored --test-threads=1` runs 7
+end-to-end tests that build a real venv and download pinned wheels. The
+integration tests are `#[ignore]`d because they need the network; a green
+`cargo test` alone does not mean the install path works.
 
 ## Commands
 
@@ -18,8 +31,17 @@ can't express; the command list lives in `package.json` and `README.md`.
 - `npm run tauri build` — full bundle into `src-tauri/target/release/bundle/`.
 - `cd src-tauri && cargo check` — Rust only. Cold `cargo check` of the Tauri dep
   tree writes ~600MB to `src-tauri/target/`.
+- `cd src-tauri && cargo test` — 31 unit tests, no network.
+- `cd src-tauri && cargo test --test vertical -- --ignored --test-threads=1` —
+  7 end-to-end tests. Builds a venv and downloads pinned wheels, so it needs
+  network and roughly a minute. Run these after touching `install.rs`,
+  `dispatch.rs`, `catalog.rs`, or any adapter.
 - `npm run dev` — frontend only, in a browser. `invoke()` calls will fail; that is
   expected, not a bug.
+
+Environment overrides: `DARWIN_PYTHON` picks the interpreter venvs are built
+from, `DARWIN_HARNESS_REV` is baked in as the harness revision in every
+fingerprint (falls back to `unknown` when unset).
 
 ## How Pi is wired
 
@@ -53,7 +75,87 @@ Observed record types on 0.78.1: `agent_start`, `turn_start`/`turn_end`,
 `message_start`/`message_end`, `message_update`, `tool_execution_start`/`_end`,
 `agent_end`. Tool records carry `toolName` + `args`, then `result` + `isError`.
 
+## How the tool harness is wired
+
+Callers ask for a **capability** (`fold.mfe`), never for a tool. A registry
+record binds a concrete `tool@version` to a capability, and routing picks the
+implementation. The order in `service.rs::execute` is the security property, not
+an implementation detail:
+
+```
+validate sequence in Rust  ->  candidates = installed AND smoke-passed
+  ->  route by length      ->  re-read record by content-addressed id
+  ->  dispatch in a built env, under a deadline
+  ->  build fingerprint from registry state (never from adapter output)
+```
+
+Modules: `capability.rs` (contract + `Routing`), `fingerprint.rs` (provenance),
+`registry.rs` (SQLite + `ToolRegistry` trait), `install.rs` (venv + pinned
+installs), `dispatch.rs` (subprocess), `catalog.rs` (curated seed),
+`service.rs` (orchestration).
+
+Three properties worth preserving:
+
+- **The adapter cannot report its own provenance.** `dispatch::run` passes tool,
+  version, artifact hash and algorithm through the environment; the fingerprint
+  is assembled from the registry. The adapter's echo is checked for *agreement*
+  in `verify_context` and disagreement is fatal. An adapter that hardcoded its
+  own name could otherwise misattribute a number.
+- **Adapter source is `include_str!`'d** (`catalog.rs`), so the adapter bytes and
+  the `adapter_sha256` in every fingerprint cannot drift apart. Editing an
+  adapter changes the hash, which surfaces in results.
+- **A tool is not a candidate until it reproduces its known answers.** Failures
+  are recorded, not discarded, so a broken tool stays visible instead of
+  vanishing. Known answers in `catalog.rs` are regression baselines captured
+  from these exact wheels, not literature values.
+
+`install` uses pip's own `--require-hashes` rather than hashing after the fact,
+so a swapped artifact fails the install. Because a hash is ABI-specific, the
+venv interpreter is chosen from the seed's `python_tag` (`cp314`); picking
+whatever `python3` happens to be gives a venv whose wheels cannot match.
+`DARWIN_PYTHON` overrides and is authoritative — if it disagrees with the tag
+that is a hard error, not something to paper over.
+
+**Network isolation is not enforced, and the code says so.** cwd is a scratch
+dir and the environment is built rather than inherited, but macOS
+`sandbox-exec` is deprecated and seccomp is unavailable from a Rust process. An
+adapter that wants to phone home can. Treat adapter code as trusted-but-reviewed;
+it is not a boundary against a hostile package. This is also why the
+`--require-hashes` install, not the sandbox, is what makes a package safe to run.
+
 ## Things that will bite you
+
+**`pylinearfold`'s `partition` output is not what the docs suggest.** Verified
+against the real 1.0.0 wheel:
+- `probabilities` is a **numpy structured array** with fields `(i, j, prob)`, not
+  a dict of `"i-j"` string keys.
+- The indices are **already 0-based**. Checked on a 14-mer: rows span i=0..13 and
+  every row is complementary under 0-based indexing, none under 1-based.
+
+An early adapter read it as a dict and subtracted 1 from each index, which would
+have silently returned wrong base pairs. The integration test now asserts every
+returned pair is complementary in the returned sequence, which is what catches
+this class of bug.
+
+**`partition`'s `free_energy` is the ensemble free energy, not the MFE.** The
+adapter folds separately and reports both under `mfe` and
+`ensemble_free_energy`. Reading the MFE out of `free_energy` made the two
+identical, which erased the one distinction `fold.ensemble` exists to expose.
+
+**Do not serialise `CapabilityRequest` to get the adapter payload.** Serde's
+internal tagging flattens a newtype variant, so the sequence lands at the top
+level and an adapter reading `request["fold"]` sees nothing. `service.rs` builds
+the `{capability, fold}` envelope by hand. Relatedly: dispatch the *normalized*
+sequence. Sending the raw one put a `T` in front of an adapter that correctly
+rejects it, so T-input and lowercase both failed after `normalized()` had
+already accepted them.
+
+**`SqliteRegistry` locks a `Mutex`, and it is not reentrant.** Tauri state must be
+`Send + Sync` and a `rusqlite::Connection` is only `Send`. Public methods take
+the lock once and delegate to `*_locked` helpers; `candidates()` needs two
+helpers under one lock. Calling a public method from another public method
+deadlocks. Also, `&self.conn()?` does not compile — deref coercion does not
+apply through `?`, so bind the guard first.
 
 **Do not add `baseUrl` to `tsconfig.json`.** TypeScript here is `~6.0.3`, where
 `baseUrl` is deprecated and errors out (TS5101). `@/*` resolves through `paths`
