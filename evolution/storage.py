@@ -50,34 +50,45 @@ class DarwinStore:
 
     def ensure_indexes(self) -> None:
         self.db.tool_toc.create_index(
-            [("toc_version", ASCENDING), ("path", ASCENDING)], unique=True
+            [("toc_version", ASCENDING), ("path", ASCENDING)],
+            name="version_path_unique",
+            unique=True,
         )
         self.db.tool_toc.create_index(
-            [("toc_version", ASCENDING), ("parent", ASCENDING), ("order", ASCENDING)]
+            [("toc_version", ASCENDING), ("parent", ASCENDING), ("order", ASCENDING)],
+            name="version_parent_order",
         )
-        self.db.routing_tasks.create_index("task_id", unique=True)
         self.db.routing_tasks.create_index(
-            [("split", ASCENDING), ("section", ASCENDING)]
+            "task_id", name="task_id_unique", unique=True
+        )
+        self.db.routing_tasks.create_index(
+            [("split", ASCENDING), ("section", ASCENDING)], name="split_section"
         )
         self.db.routing_results.create_index(
             [("run_id", ASCENDING), ("task_id", ASCENDING), ("method", ASCENDING)],
+            name="run_task_method_unique",
             unique=True,
         )
         self.db.routing_results.create_index(
-            [("method", ASCENDING), ("correct", ASCENDING), ("created_at", DESCENDING)]
+            [("method", ASCENDING), ("correct", ASCENDING), ("created_at", DESCENDING)],
+            name="method_correct_created",
         )
-        self.db.toc_versions.create_index("version", unique=True)
+        self.db.toc_versions.create_index("version", name="version_unique", unique=True)
         self.db.toc_versions.create_index(
-            [("parent_version", ASCENDING), ("status", ASCENDING)]
+            [("parent_version", ASCENDING), ("status", ASCENDING)],
+            name="parent_status",
         )
         self.db.toc_mutations.create_index(
-            [("from_version", ASCENDING), ("created_at", DESCENDING)]
+            [("from_version", ASCENDING), ("created_at", DESCENDING)],
+            name="from_created",
         )
         self.db.toc_fitness.create_index(
-            [("toc_version", ASCENDING), ("generation", ASCENDING)]
+            [("toc_version", ASCENDING), ("generation", ASCENDING)],
+            name="version_generation",
         )
         self.db.toc_knockouts.create_index(
-            [("champion_version", ASCENDING), ("mutation_id", ASCENDING)]
+            [("champion_version", ASCENDING), ("mutation_id", ASCENDING)],
+            name="champion_mutation",
         )
 
     def ping(self) -> None:
