@@ -30,6 +30,11 @@ python -m evolution.router --version 1
 python -m evolution.evolve_loop --generations 2
 python -m evolution.knockouts
 python -m evolution.demo --no-pause
+python -m evolution.smoke_test
+python -m evolution.live_panel
+python -m evolution.phylogeny
+python -m evolution.rigor_report --verify-routing
+python -m evolution.transfer_test
 ```
 
 Use `python -m evolution.evolve_loop --continuous` only when you intend to run
@@ -47,3 +52,21 @@ vector matching. `paper_tools.py` registers paper-derived tool candidates and
 prevents promotion until tests and review are recorded. The reusable workflow
 for producing those candidates is versioned in
 `skills/darwin-paper-to-tool/`.
+
+## Demo evidence
+
+`live_panel.py` polls Atlas every two seconds and renders lineage, mutation feed,
+test-score history, and promoted discoveries in a compact four-pane display. If
+Atlas becomes unavailable, it retains the last successful snapshot with an
+explicit offline banner. `--replay FILE` drives the identical view from a saved
+snapshot or `toc_evolution_log.json` at 4× speed.
+
+`rigor_report.py` computes every displayed value from Atlas and writes `RIGOR.md`.
+Pass `--verify-routing` to perform two fresh temperature-zero test runs and compare
+the entire route vector. Structural SHA-256 hashes exclude operational counters
+and embeddings, so taxonomy content remains verifiable while telemetry accumulates.
+
+`transfer_test.py` refuses to run unless it can form the requested task set from
+leaves untouched by every promoted mutation. Its wrong-tool cost uses recorded
+tree-router token usage and latency; old results without telemetry remain missing
+rather than being estimated.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-Split = Literal["evolve", "select", "test"]
+Split = Literal["evolve", "select", "test", "transfer"]
 Operator = Literal[
     "toc_rewrite_description", "toc_move", "toc_split", "toc_merge", "toc_insert"
 ]
@@ -58,6 +58,10 @@ class RouteResult:
     split: str
     fallback: str | None = None
     error: str | None = None
+    elapsed_seconds: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
     def to_document(self) -> dict[str, Any]:
         return asdict(self)

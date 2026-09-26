@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -16,6 +17,23 @@ from .models import RouteResult, RoutingTask, TocNode
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def structural_hash(nodes: Iterable[TocNode]) -> str:
+    """Hash versioned structure while excluding mutable routing counters/embeddings."""
+    records = [
+        {
+            "path": node.path,
+            "parent": node.parent,
+            "title": node.title,
+            "description": node.description,
+            "is_leaf": node.is_leaf,
+            "order": node.order,
+        }
+        for node in sorted(nodes, key=lambda item: item.path)
+    ]
+    canonical = json.dumps(records, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class DarwinStore:
@@ -44,6 +62,13 @@ class DarwinStore:
         self.db.routing_results.create_index(
             [("run_id", ASCENDING), ("task_id", ASCENDING), ("method", ASCENDING)],
             unique=True,
+        )
+        self.db.routing_results.create_index(
+            [("method", ASCENDING), ("correct", ASCENDING), ("created_at", DESCENDING)]
+        )
+        self.db.toc_versions.create_index("version", unique=True)
+        self.db.toc_versions.create_index(
+            [("parent_version", ASCENDING), ("status", ASCENDING)]
         )
         self.db.toc_mutations.create_index(
             [("from_version", ASCENDING), ("created_at", DESCENDING)]
@@ -154,6 +179,7 @@ class DarwinStore:
                 {"status": "champion", "version": {"$ne": version}},
                 {"$set": {"status": "superseded", "updated_at": utc_now()}},
             )
+        version_hash = structural_hash(self.nodes(version))
         self.db.toc_versions.update_one(
             {"version": version},
             {
@@ -163,10 +189,39 @@ class DarwinStore:
                     "mutation_id": mutation_id,
                     "updated_at": utc_now(),
                 },
-                "$setOnInsert": {"created_at": utc_now()},
+                "$setOnInsert": {
+                    "created_at": utc_now(),
+                    "content_hash": version_hash,
+                    "hash_algorithm": "sha256-structural-v1",
+                },
             },
             upsert=True,
         )
+        self.db.toc_versions.update_one(
+            {"version": version, "content_hash": {"$exists": False}},
+            {
+                "$set": {
+                    "content_hash": version_hash,
+                    "hash_algorithm": "sha256-structural-v1",
+                }
+            },
+        )
+
+    def verify_version_hashes(self) -> list[dict[str, Any]]:
+        rows = []
+        for document in self.db.toc_versions.find({}, {"_id": 0}).sort("version", 1):
+            version = int(document["version"])
+            expected = document.get("content_hash")
+            actual = structural_hash(self.nodes(version))
+            rows.append(
+                {
+                    "version": version,
+                    "expected": expected,
+                    "actual": actual,
+                    "verified": bool(expected and expected == actual),
+                }
+            )
+        return rows
 
     def next_version(self) -> int:
         document = self.db.toc_versions.find_one(sort=[("version", DESCENDING)])

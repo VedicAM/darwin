@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -78,7 +79,7 @@ class Router:
 
     async def route_toc(
         self, task_text: str, toc_version: int
-    ) -> tuple[str, float | None]:
+    ) -> tuple[str, float | None, str | None, int | None, int | None]:
         nodes = self._nodes(toc_version)
         leaves = [node.path for node in nodes if node.is_leaf]
         if not leaves:
@@ -120,11 +121,18 @@ class Router:
             },
         )
         payload = json.loads(response.choices[0].message.content or "{}")
-        return str(payload["leaf"]), float(payload["confidence"])
+        usage = response.usage
+        return (
+            str(payload["leaf"]),
+            float(payload["confidence"]),
+            None,
+            usage.prompt_tokens if usage else None,
+            usage.completion_tokens if usage else None,
+        )
 
     async def route_unconstrained(
         self, task_text: str, toc_version: int
-    ) -> tuple[str, float | None]:
+    ) -> tuple[str, float | None, str | None, int | None, int | None]:
         nodes = self._nodes(toc_version)
         client = self._require_client()
         response = await client.chat.completions.create(
@@ -141,11 +149,18 @@ class Router:
                 {"role": "user", "content": task_text},
             ],
         )
-        return (response.choices[0].message.content or "").strip(), None
+        usage = response.usage
+        return (
+            (response.choices[0].message.content or "").strip(),
+            None,
+            None,
+            usage.prompt_tokens if usage else None,
+            usage.completion_tokens if usage else None,
+        )
 
     async def route_flat(
         self, task_text: str, toc_version: int
-    ) -> tuple[str, float, str]:
+    ) -> tuple[str, float, str, int | None, int | None]:
         leaves = [node for node in self._nodes(toc_version) if node.is_leaf]
         if not leaves:
             raise RuntimeError(f"taxonomy version {toc_version} has no leaves")
@@ -186,10 +201,13 @@ class Router:
                     )
                 )
                 if documents:
+                    usage = response.usage
                     return (
                         str(documents[0]["path"]),
                         float(documents[0]["score"]),
                         "vector",
+                        usage.prompt_tokens if usage else None,
+                        usage.completion_tokens if usage else None,
                     )
             except Exception as error:  # noqa: BLE001 - vector availability is optional
                 vector_fallback = type(error).__name__
@@ -197,7 +215,7 @@ class Router:
         fallback = "keyword_overlap"
         if vector_fallback:
             fallback += f":{vector_fallback}"
-        return leaf, score, fallback
+        return leaf, score, fallback, 0, 0
 
     async def score(
         self,
@@ -221,11 +239,19 @@ class Router:
 
         async def one(task: RoutingTask) -> RouteResult:
             async with semaphore:
+                started = time.perf_counter()
                 try:
                     value = await routes[method](task.text)
                     predicted = str(value[0])
                     confidence = float(value[1]) if value[1] is not None else None
                     fallback = str(value[2]) if len(value) > 2 else None
+                    prompt_tokens = value[3] if len(value) > 3 else None
+                    completion_tokens = value[4] if len(value) > 4 else None
+                    total_tokens = (
+                        int(prompt_tokens or 0) + int(completion_tokens or 0)
+                        if prompt_tokens is not None or completion_tokens is not None
+                        else None
+                    )
                     hallucinated = predicted not in valid_leaves
                     return RouteResult(
                         task_id=task.task_id,
@@ -238,6 +264,10 @@ class Router:
                         toc_version=toc_version,
                         split=split,
                         fallback=fallback,
+                        elapsed_seconds=time.perf_counter() - started,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
                     )
                 except Exception as error:  # noqa: BLE001 - score records per-task failures
                     return RouteResult(
@@ -251,6 +281,7 @@ class Router:
                         toc_version=toc_version,
                         split=split,
                         error=f"{type(error).__name__}: {error}",
+                        elapsed_seconds=time.perf_counter() - started,
                     )
 
         per_task = list(await asyncio.gather(*(one(task) for task in selected_tasks)))

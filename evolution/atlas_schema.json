@@ -1,6 +1,40 @@
 {
   "database": "darwin_evaluation",
   "collections": {
+    "tool_toc": {
+      "indexes": [
+        {"name": "version_path_unique", "keys": {"toc_version": 1, "path": 1}, "unique": true},
+        {"name": "version_parent_order", "keys": {"toc_version": 1, "parent": 1, "order": 1}}
+      ],
+      "vector_index": {"name": "tool_toc_vec", "path": "embedding", "similarity": "cosine", "filters": ["toc_version", "is_leaf"]}
+    },
+    "routing_tasks": {
+      "indexes": [
+        {"name": "task_id_unique", "keys": {"task_id": 1}, "unique": true},
+        {"name": "split_section", "keys": {"split": 1, "section": 1}}
+      ]
+    },
+    "routing_results": {
+      "indexes": [
+        {"name": "run_task_method_unique", "keys": {"run_id": 1, "task_id": 1, "method": 1}, "unique": true},
+        {"name": "method_correct_created", "keys": {"method": 1, "correct": 1, "created_at": -1}}
+      ]
+    },
+    "toc_versions": {
+      "indexes": [
+        {"name": "version_unique", "keys": {"version": 1}, "unique": true},
+        {"name": "parent_status", "keys": {"parent_version": 1, "status": 1}}
+      ]
+    },
+    "toc_mutations": {
+      "indexes": [{"name": "from_created", "keys": {"from_version": 1, "created_at": -1}}]
+    },
+    "toc_fitness": {
+      "indexes": [{"name": "version_generation", "keys": {"toc_version": 1, "generation": 1}}]
+    },
+    "toc_knockouts": {
+      "indexes": [{"name": "champion_mutation", "keys": {"champion_version": 1, "mutation_id": 1}}]
+    },
     "failures": {
       "indexes": [
         {"name": "trace_id_idx", "keys": {"trace_id": 1}},

@@ -1,8 +1,12 @@
 import unittest
+from dataclasses import replace
+from io import StringIO
 
 import numpy as np
+from rich.console import Console
 
 from evolution.knockouts import classify, paired_bootstrap
+from evolution.live_panel import render, replay_snapshots, sparkline
 from evolution.models import MutationProposal
 from evolution.negative_results import (
     RegistryConfig,
@@ -10,7 +14,9 @@ from evolution.negative_results import (
     trim_pitfall_block,
 )
 from evolution.paper_tools import ToolCandidate
+from evolution.phylogeny import affected_paths
 from evolution.router import keyword_route, render_tree
+from evolution.storage import structural_hash
 from evolution.taxonomy import routing_tasks, version_one_nodes
 from evolution.toc_mutations import apply_to_nodes, guard
 
@@ -147,6 +153,71 @@ class KnockoutTests(unittest.TestCase):
         effect, lower, upper = paired_bootstrap(champion, knockout, samples=100)
         self.assertEqual((effect, lower, upper), (1.0, 1.0, 1.0))
         self.assertEqual(classify(effect, lower, upper), "Essential")
+
+
+class DemoEvidenceTests(unittest.TestCase):
+    def test_structural_hash_ignores_runtime_counters(self):
+        nodes = version_one_nodes()
+        changed = [
+            replace(node, routed_calls=9, routed_correct=7)
+            if node.path == "A.A1"
+            else node
+            for node in nodes
+        ]
+        self.assertEqual(structural_hash(nodes), structural_hash(changed))
+
+    def test_replay_log_becomes_progressive_snapshots(self):
+        frames = replay_snapshots(
+            [
+                {
+                    "generation": 1,
+                    "champion_before": 1,
+                    "champion_after": 2,
+                    "selection": [
+                        {
+                            "child_version": 2,
+                            "mutation_id": "mut-1",
+                            "operator": "toc_insert",
+                            "fixes": 3,
+                            "breaks": 0,
+                            "pvalue": 0.05,
+                            "promoted": True,
+                        }
+                    ],
+                    "test_r_at_1": 0.8,
+                }
+            ]
+        )
+        self.assertEqual(frames[0]["versions"][-1]["status"], "champion")
+        self.assertEqual(frames[0]["mutations"][0]["status"], "promoted")
+
+    def test_panel_renders_at_80_by_24(self):
+        snapshot = {
+            "captured_at": "now",
+            "versions": [{"version": 1, "parent_version": None, "status": "champion"}],
+            "mutations": [],
+            "fitness": [],
+            "runs": {},
+        }
+        stream = StringIO()
+        console = Console(file=stream, width=80, height=24, force_terminal=True)
+        console.print(render(snapshot))
+        self.assertIn("DARWIN", stream.getvalue())
+
+    def test_phylogeny_extracts_affected_paths(self):
+        paths = affected_paths(
+            {
+                "change": {
+                    "path": "C.C1",
+                    "new_parent": "D",
+                    "children": [{"path": "C.C1.1"}],
+                }
+            }
+        )
+        self.assertEqual(paths, {"C.C1", "C.C1.1", "D"})
+
+    def test_sparkline_is_deterministic(self):
+        self.assertEqual(len(sparkline([0.1, 0.2, 0.3])), 3)
 
 
 class NegativeResultsTests(unittest.TestCase):

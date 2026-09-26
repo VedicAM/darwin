@@ -68,3 +68,46 @@ causal contribution with mutation knockouts, and writes an offline replay.
 It targets the `darwin_evaluation` database by default and requires explicit
 `MONGODB_URI` and `OPENROUTER_API_KEY` environment variables. See
 [`evolution/README.md`](evolution/README.md) for setup and commands.
+
+### Three-minute judging path
+
+Darwin addresses a common agent-infrastructure failure: tool catalogs are
+hand-organized, yet teams rarely measure whether that organization routes work
+correctly. Darwin treats the catalog as a living, versioned taxonomy. It diagnoses
+misroutes, proposes structural changes, rejects unsafe changes, promotes only on a
+held-out split, and preserves the lineage and causal evidence for every survivor.
+
+Run these in separate terminals:
+
+```bash
+python -m evolution.smoke_test
+python -m evolution.live_panel
+python -m evolution.phylogeny
+python -m evolution.rigor_report --verify-routing
+python -m evolution.transfer_test
+```
+
+For a network-independent presentation, point the same dashboard at a saved
+evolution log: `python -m evolution.live_panel --replay evolution/runs/toc_evolution_log.json`.
+The UI labels missing measurements and cached state explicitly; it never fills a
+demo with synthetic performance results.
+The timed narration and operator handoff are in [`DEMO.md`](DEMO.md).
+
+### Built for the Darwin evolution demo
+
+- `evolution/taxonomy.py` — reproducible 35-node starting tree and 60-task benchmark.
+- `evolution/router.py` — constrained tree router, baselines, and latency/token telemetry.
+- `evolution/toc_mutations.py` — five structural operators plus deterministic safety guard.
+- `evolution/evolve_loop.py` — three-way split selection loop and immutable lineage.
+- `evolution/knockouts.py` — paired bootstrap causal knockouts and pruned champion.
+- `evolution/live_panel.py` — four-pane Atlas dashboard with cached and 4× replay modes.
+- `evolution/smoke_test.py` — one-minute green/red preflight.
+- `evolution/rigor_report.py` — computed protocol, guard, statistics, hash, and reproducibility evidence.
+- `evolution/phylogeny.py` — lineage tree, per-leaf fossil record, and provenance ratio.
+- `evolution/transfer_test.py` — never-touched-leaf generalization and wrong-tool cost.
+- `evolution/negative_results.py` — bounded, calibrated Negative Results Registry.
+- `evolution/paper_tools.py` — evidence-gated paper-derived tool candidates.
+- `skills/darwin-paper-to-tool/` — reusable paper-to-tested-tool workflow.
+
+The implementation history is visible in the repository's
+[commit log](https://github.com/VedicAM/darwin/commits/feat/self-evolving-tool-taxonomy).
