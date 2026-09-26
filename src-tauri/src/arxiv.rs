@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 /// Hard ceiling on a page. Enforced against the *request*, not the response:
 /// arXiv honours `max_results`, but a response is still truncated defensively
 /// so a misbehaving or hostile endpoint cannot inflate the reply.
-pub const MAX_RESULTS: usize = 25;
+pub const MAX_RESULTS: usize = 50;
 
 /// Revision of the arXiv feed contract this build implements.
 ///
@@ -188,30 +188,24 @@ pub fn assert_allowed(url: &reqwest::Url) -> Result<(), String> {
 /// untouched, so a caller who knows arXiv syntax gets exactly what they wrote.
 pub fn build_search_query(query: &str, category: Option<&str>) -> String {
     let trimmed = query.trim();
-    // Mirrors `buildArxivUrl` in `.pi/extensions/literature/core.ts`, which
-    // carries an empirical note this port must not lose:
+    // Each term is prefixed with `all:` and the terms are joined with an
+    // explicit `AND`. A bare `all:` over the whole string is not equivalent:
+    // arXiv expands a space-separated `all:` list into ORs, so
+    // `all:RNA consensus prediction` returns the whole archive (807 363 hits,
+    // verified live) while `all:RNA AND all:consensus AND all:prediction`
+    // returns a usable page.
     //
-    //   The terms are deliberately NOT quoted. arXiv treats a quoted string as
-    //   an exact phrase, and a long natural-language phrase then matches
-    //   nothing: verified against the live API, `all:"linear-time RNA secondary
-    //   structure prediction"` returned 0 entries while the same terms unquoted
-    //   returned 3. Unquoted terms are ANDed by arXiv itself, so one `all:`
-    //   prefix over the whole string behaves the same for an exact tool name
-    //   and for a longer description.
-    //
-    // So: strip quotes, prefix once, and let arXiv do the ANDing. Emitting
-    // `all:a AND all:b` per term would look more explicit and would silently
-    // change recall on multi-word queries.
+    // Quotes are stripped first: arXiv treats a quoted string as an exact
+    // phrase, and a long natural-language phrase then matches nothing.
     let base = if looks_like_arxiv_syntax(trimmed) {
         trimmed.to_string()
     } else {
         let unquoted: String = trimmed.chars().filter(|c| *c != '"').collect();
-        let unquoted = unquoted.trim();
-        if unquoted.is_empty() {
-            String::new()
-        } else {
-            format!("all:{unquoted}")
-        }
+        let terms: Vec<String> = unquoted
+            .split_whitespace()
+            .map(|term| format!("all:{term}"))
+            .collect();
+        terms.join(" AND ")
     };
     match category {
         Some(cat) if !cat.is_empty() => {
@@ -309,6 +303,10 @@ pub fn parse_feed(xml: &str) -> Result<Feed, String> {
                         });
                     }
                     "opensearch:totalResults" => text_target = Some(Target::Total),
+                    // arXiv usually delivers the DOI as element text
+                    // (`<arxiv:doi>10.x/y</arxiv:doi>`); the self-closing form
+                    // below is the rare case.
+                    "arxiv:doi" => text_target = Some(Target::Doi),
                     _ => {}
                 }
             }
@@ -381,6 +379,7 @@ pub fn parse_feed(xml: &str) -> Result<Feed, String> {
                         | "published"
                         | "updated"
                         | "opensearch:totalResults"
+                        | "arxiv:doi"
                 ) {
                     text_target = None;
                 }
@@ -396,7 +395,7 @@ pub fn parse_feed(xml: &str) -> Result<Feed, String> {
     // Finishing it here would invent a paper from a fragment, and dropping it
     // would report fewer results than arXiv actually sent, so it is an error.
     if entry.is_some() {
-        return Err("arXiv response ended in the middle of an <entry>".into());
+        return Err("arXiv response is not well-formed XML: it ended in the middle of an <entry>".into());
     }
     if !saw_feed {
         return Err("arXiv response was not an Atom feed".into());
@@ -413,6 +412,7 @@ enum Target {
     Published,
     Updated,
     Author,
+    Doi,
 }
 
 #[derive(Default)]
@@ -443,11 +443,16 @@ impl Entry {
             Target::Summary => self.summary.push_str(raw),
             Target::Published => self.published.push_str(raw),
             Target::Updated => self.updated.push_str(raw),
+            // The feed-level hit count belongs to the feed. The text handler
+            // filters it out before calling `push`, so reaching this arm would
+            // mean that guard regressed.
+            Target::Total => {}
             Target::Author => {
                 if let Some(name) = collapse(raw) {
                     self.authors.push(name);
                 }
             }
+            Target::Doi => self.doi.get_or_insert_with(String::new).push_str(raw),
         }
     }
 
@@ -844,11 +849,17 @@ mod tests {
     #[test]
     fn the_query_is_percent_encoded() {
         let url = build_url(&q("all:\"rna folding\" & ti:x", 5)).unwrap();
-        // A raw space or ampersand in the query would truncate the parameter
-        // list and let the query inject extra arXiv parameters.
+        // A raw space or ampersand in the search_query value would truncate the
+        // parameter list and let the query inject extra arXiv parameters, so it
+        // must be percent-encoded. Inspect the encoded `search_query` segment
+        // rather than the whole query string, whose `&` separators are leg-
+        // itimate.
         let query = url.query().unwrap();
-        assert!(!query.contains(' '), "{query}");
-        assert!(!query.contains('&'), "{query}");
+        let sq = query
+            .split('&')
+            .find(|p| p.starts_with("search_query="))
+            .expect("search_query is present");
+        assert!(!sq.contains(' '), "{sq}");
         assert!(query.contains("%26"), "{query}");
     }
 

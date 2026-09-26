@@ -188,25 +188,25 @@ pub fn arxiv_api() -> SeedTool {
 fn known_papers() -> Vec<KnownPaper> {
     vec![
         KnownPaper {
-            name: "nucleic_acid_folding_2015",
+            name: "de_novo_rna_2015",
             arxiv_id: "1502.05667",
-            title_prefix: "A free-energy based model of",
+            title_prefix: "Towards de novo RNA 3D structure prediction",
             authors: 3,
             primary_category: "q-bio.BM",
         },
         KnownPaper {
-            name: "five_prime_three_prime_2011",
+            name: "atomic_resolution_2011",
             arxiv_id: "1103.3032",
-            title_prefix: "In vivo hybridization kinetics",
+            title_prefix: "Why Can't We Predict RNA Structure At Atomic Resolution?",
             authors: 3,
             primary_category: "q-bio.BM",
         },
         KnownPaper {
-            name: "later_revision_2026",
+            name: "ml_rna_review_2026",
             // The third entry was submitted in 2025 and revised in 2026, so it
             // is the case where `published` and `updated` genuinely differ.
             arxiv_id: "2511.02622",
-            title_prefix: "Foundation models for nucleic acid",
+            title_prefix: "Machine Learning for RNA Secondary Structure Prediction",
             authors: 3,
             primary_category: "q-bio.BM",
         },

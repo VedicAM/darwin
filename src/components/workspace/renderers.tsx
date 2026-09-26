@@ -13,6 +13,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ChartSpline,
   Dna,
+  FlaskConical,
   Rows3,
   Rss,
   Spline,
@@ -24,6 +25,7 @@ import type {
   ArtifactType,
 } from "@/lib/artifacts/types";
 import { AlignmentView } from "./AlignmentView";
+import { ExperimentView } from "./ExperimentView";
 import { PlotView } from "./PlotView";
 import { ResearchView } from "./ResearchView";
 import { SequenceView } from "./SequenceView";
@@ -78,6 +80,7 @@ export const ARTIFACT_META: Record<ArtifactType, ArtifactMeta> = {
   "research.repository": { label: "Repositories", Icon: Rows3, fallbackTitle: "Repositories" },
   table: { label: "Table", Icon: Table2, fallbackTitle: "Table" },
   plot: { label: "Plot", Icon: ChartSpline, fallbackTitle: "Plot" },
+  experiment: { label: "Experiment", Icon: FlaskConical, fallbackTitle: "Experiment" },
 };
 
 export const RENDERERS: Record<ArtifactType, ComponentType<ViewProps>> = {
@@ -89,4 +92,5 @@ export const RENDERERS: Record<ArtifactType, ComponentType<ViewProps>> = {
   "research.repository": view(isType("research.repository"), ResearchView),
   table: view(isType("table"), TableView),
   plot: view(isType("plot"), PlotView),
+  experiment: view(isType("experiment"), ExperimentView),
 };

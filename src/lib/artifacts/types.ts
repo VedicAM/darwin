@@ -21,11 +21,13 @@ export type ArtifactType =
   | "research.paper"
   | "research.repository"
   | "table"
-  | "plot";
+  | "plot"
+  | "experiment";
 
 /** Every type, in the order a new run produces them. Used for iteration. */
 export const ARTIFACT_TYPES: readonly ArtifactType[] = [
   "workflow",
+  "experiment",
   "sequence",
   "alignment",
   "rna_structure",
@@ -61,7 +63,8 @@ export type Artifact =
   | RNAStructureArtifact
   | ResearchArtifact
   | TableArtifact
-  | PlotArtifact;
+  | PlotArtifact
+  | ExperimentArtifact;
 
 // --- workflow ---------------------------------------------------------------
 
@@ -252,6 +255,49 @@ export interface PlotArtifact extends ArtifactBase {
   series: PlotSeries[];
   xLabel?: string;
   yLabel?: string;
+}
+
+// --- experiment -------------------------------------------------------------
+
+export type ProducedFileKind = "data" | "table" | "sequence" | "image" | "text";
+
+/**
+ * One file an experiment wrote. `content` is the inlined text, or a `data:` URI
+ * for an image; absent when the harness judged it too large (`truncated`).
+ */
+export interface ProducedFile {
+  name: string;
+  kind: ProducedFileKind;
+  size: number;
+  content?: string;
+  truncated?: boolean;
+}
+
+/**
+ * An agent-authored analysis the harness ran. This is *computed evidence*, kept
+ * deliberately distinct from the agent's prose interpretation in the transcript:
+ * the card shows the exact code, its streams, and the files it produced, so a
+ * reader can see how a number was generated rather than take it on faith.
+ */
+export interface ExperimentArtifact extends ArtifactBase {
+  type: "experiment";
+  /** The exact Python that ran. */
+  code: string;
+  stdout: string;
+  stderr: string;
+  /** Process exit code, or null if killed on its deadline. */
+  exitCode: number | null;
+  timedOut: boolean;
+  elapsedMs: number;
+  /** Interpreter/provider that ran the code. */
+  provider: string;
+  /** SHA-256 of the exact code that ran. */
+  codeSha256?: string;
+  /** Interpreter version, when the managed experiment env ran it. */
+  pythonVersion?: string;
+  /** Hash of the env's resolved packages, when the managed env ran it. */
+  depsHash?: string;
+  files: ProducedFile[];
 }
 
 // --- guards -----------------------------------------------------------------

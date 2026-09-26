@@ -21,7 +21,10 @@ import type {
   AlignmentRow,
   Artifact,
   CellValue,
+  ExperimentArtifact,
   PlotArtifact,
+  ProducedFile,
+  ProducedFileKind,
   PlotSeries,
   ResearchArtifact,
   ResearchItem,
@@ -46,6 +49,7 @@ import {
   type RawRecord,
 } from "@/lib/sequence";
 import type { FoldResult } from "@/lib/harness";
+import { sequencesFromText } from "@/lib/artifacts/from-sequence";
 
 /** One finished tool call, plus the clock reading taken when it landed. */
 export interface ToolObservation {
@@ -830,9 +834,84 @@ function pointsOf(record: Record<string, unknown>): [number, number][] {
   return points;
 }
 
+// --- experiment -------------------------------------------------------------
+
+const PRODUCED_FILE_KINDS = new Set(["data", "table", "sequence", "image", "text"]);
+
+function producedFileOf(value: unknown): ProducedFile | null {
+  if (!isRecord(value)) return null;
+  const name = asString(value.name);
+  if (!name) return null;
+  const rawKind = asString(value.kind);
+  const kind = (rawKind && PRODUCED_FILE_KINDS.has(rawKind) ? rawKind : "text") as ProducedFileKind;
+  return {
+    name,
+    kind,
+    size: asNumber(value.size) ?? 0,
+    content: asString(value.content),
+    truncated: value.truncated === true,
+  };
+}
+
+/**
+ * An experiment result: the harness ran agent-authored code. Recognised by
+ * shape — a `produced_files` array alongside `code` and `stdout` strings —
+ * rather than by the tool name, so the philosophy of this module holds. The
+ * root is consumed so `produced_files` is not also mined into a stray table.
+ */
+function experimentProjector(ctx: ProjectContext): Artifact[] {
+  for (const root of ctx.roots) {
+    if (ctx.consumed.has(root)) continue;
+    const files = root.produced_files;
+    if (!Array.isArray(files)) continue;
+    if (typeof root.code !== "string" || typeof root.stdout !== "string") continue;
+
+    ctx.consumed.add(root);
+    const produced = files.map(producedFileOf).filter((f): f is ProducedFile => f !== null);
+    const artifact: ExperimentArtifact = {
+      id: artifactId(ctx.obs, "experiment"),
+      type: "experiment",
+      title: title(ctx.obs, "Experiment"),
+      createdAt: ctx.obs.now,
+      source: source(ctx.obs),
+      code: root.code,
+      stdout: root.stdout,
+      stderr: asString(root.stderr) ?? "",
+      exitCode: asNumber(root.exit_code) ?? null,
+      timedOut: root.timed_out === true,
+      elapsedMs: asNumber(root.elapsed_ms) ?? 0,
+      provider: asString(root.provider) ?? "unknown",
+      codeSha256: asString(root.code_sha256),
+      pythonVersion: asString(root.python_version),
+      depsHash: asString(root.deps_hash),
+      files: produced,
+    };
+
+    // A produced sequence/alignment file is worth its own first-class artifact,
+    // so an experiment that writes an aligned FASTA renders in the alignment
+    // view rather than only as text inside the experiment card. Data/text/image
+    // files stay inside the card.
+    const derived: Artifact[] = [];
+    for (const file of produced) {
+      if (file.kind !== "sequence" || !file.content) continue;
+      const seq = sequencesFromText(file.name, file.content);
+      if (!seq) continue;
+      derived.push({
+        ...seq.artifact,
+        id: `${artifactId(ctx.obs, "file")}:${file.name}`,
+        createdAt: ctx.obs.now,
+        source: source(ctx.obs),
+      });
+    }
+    return [artifact, ...derived];
+  }
+  return [];
+}
+
 // --- entry point ------------------------------------------------------------
 
 const PROJECTORS: ((ctx: ProjectContext) => Artifact[])[] = [
+  experimentProjector,
   researchProjector,
   structureProjector,
   sequenceProjector,

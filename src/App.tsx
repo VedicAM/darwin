@@ -4,8 +4,11 @@ import { ArrowUp, Square, TriangleAlert, X } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Markdown } from "@/components/Markdown";
 import { Workspace } from "@/components/workspace/Workspace";
 import { useWorkspace } from "@/lib/workspace";
+import { looksLikeFasta, sequencesFromText } from "@/lib/artifacts/from-sequence";
+import type { RawRecord } from "@/lib/sequence";
 import {
   getState,
   isActive,
@@ -102,13 +105,87 @@ function App() {
   // `workspace` is a fresh object every render; only `feed` is stable, and only
   // `feed` may be a listener dependency. Depending on the object would tear the
   // Pi listeners down and back up on every keystroke.
-  const { feed: feedWorkspace } = workspace;
+  const { feed: feedWorkspace, addArtifact } = workspace;
+  // True while a file is dragged over the window, so the drop overlay shows.
+  const [dragging, setDragging] = useState(false);
 
   // Every failure worth showing the user, newest last. Kept separate from the
   // activity log because a collapsed <details> is not somewhere an error can hide.
   const pushError = useCallback((msg: string) => {
     setErrors((prev) => [...prev.slice(-(MAX_ERRORS - 1)), msg]);
     setStatus("error");
+  }, []);
+
+  // --- FASTA drag-and-drop -------------------------------------------------
+  // The webview receives real DOM drop events because the window sets
+  // `dragDropEnabled: false` (otherwise Tauri swallows the drop and hands back
+  // paths, not contents). A dropped FASTA is parsed client-side: it renders in
+  // the workspace immediately, and its sequences are appended to the composer
+  // so the next prompt ("fold this") reaches Pi with the sequence inline.
+
+  /** Cap on how much sequence text is poured into the composer. A genomic FASTA
+   *  is megabytes; a prompt is not, so the composer gets a bounded excerpt while
+   *  the full parse still shows in the workspace. */
+  const MAX_COMPOSER_CHARS = 6000;
+
+  const toFasta = (records: RawRecord[]): string =>
+    records
+      .map((r) => `>${r.name}${r.description ? ` ${r.description}` : ""}\n${r.sequence}`)
+      .join("\n");
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+      const fastas = files.filter((f) => looksLikeFasta(f.name));
+      if (fastas.length === 0) {
+        pushError("Drop a FASTA file (.fasta, .fa, .fna, .aln).");
+        return;
+      }
+
+      const snippets: string[] = [];
+      for (const file of fastas) {
+        let text: string;
+        try {
+          text = await file.text();
+        } catch (err) {
+          pushError(`could not read ${file.name}: ${describeError(err)}`);
+          continue;
+        }
+        const parsed = sequencesFromText(file.name, text);
+        if (!parsed) {
+          pushError(`${file.name} did not contain readable sequences.`);
+          continue;
+        }
+        addArtifact(parsed.artifact);
+        snippets.push(toFasta(parsed.records));
+      }
+
+      if (snippets.length > 0) {
+        const block = snippets.join("\n");
+        const capped =
+          block.length > MAX_COMPOSER_CHARS
+            ? `${block.slice(0, MAX_COMPOSER_CHARS)}\n… [truncated; full sequences loaded in the workspace]`
+            : block;
+        setInput((prev) => (prev.trim() ? `${prev}\n\n${capped}` : capped));
+      }
+    },
+    [pushError, addArtifact],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) {
+      e.preventDefault();
+      setDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear when the pointer actually leaves the window, not when it
+    // crosses between child elements (which also fire dragleave).
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
   }, []);
 
   const handleRecord = useCallback(
@@ -228,7 +305,20 @@ function App() {
     // Two panes split by a 1px rule: Pi on the left, the scientific workspace on
     // the right. min-w-0 on each pane lets it shrink so the rule stays put
     // instead of being shoved off-screen by wide content.
-    <main className="relative flex h-screen overflow-hidden bg-background text-foreground">
+    <main
+      className="relative flex h-screen overflow-hidden bg-background text-foreground"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drop overlay: shown only while a file is dragged over the window. It is
+          pointer-events-none so it never intercepts the drop it is describing. */}
+      {dragging ? (
+        <div className="bg-background/85 border-primary/60 pointer-events-none absolute inset-3 z-50 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed backdrop-blur-sm">
+          <p className="text-foreground text-sm font-medium">Drop FASTA to load</p>
+          <p className="text-muted-foreground text-xs">.fasta · .fa · .fna · .aln</p>
+        </div>
+      ) : null}
       {/* titleBarStyle Overlay floats the traffic lights over the webview, so
           the top strip is a drag handle and the panes pad below it. pt-12 keeps
           the first line clear of the lights, which sit roughly 12px from the
@@ -265,17 +355,25 @@ function App() {
                       <div
                         key={i}
                         className={cn(
-                          "leading-relaxed whitespace-pre-wrap",
+                          "leading-relaxed",
                           isUser
                             ? // A blue rule instead of a bubble. `self-start` keeps
                               // the rule only as tall as the prompt, so a one-line
-                              // question does not get a full-height bar.
-                              "text-foreground self-start border-l-2 border-l-blue-500/70 pl-3 text-[14px] dark:border-l-blue-400/70"
+                              // question does not get a full-height bar. User text
+                              // stays literal (whitespace preserved, not parsed).
+                              "text-foreground self-start border-l-2 border-l-blue-500/70 pl-3 text-[14px] whitespace-pre-wrap dark:border-l-blue-400/70"
                             : "text-foreground text-[15px]",
                         )}
                       >
                         <span className="sr-only">{isUser ? "You said: " : "Darwin said: "}</span>
-                        {turn.text}
+                        {/* Agent output is markdown; the user's own prompt is not
+                            parsed, so a question containing `*` or `#` renders as
+                            typed. */}
+                        {isUser ? (
+                          turn.text
+                        ) : (
+                          <Markdown text={turn.text} className="flex flex-col gap-3" />
+                        )}
                         {thinking ? <Thinking /> : null}
                       </div>
                     );

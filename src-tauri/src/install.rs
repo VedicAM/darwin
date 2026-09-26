@@ -261,6 +261,55 @@ pub fn install_pinned(venv: &Path, pins: &[Pin]) -> Result<InstallationInfo, Str
     Ok(info)
 }
 
+/// Install packages (each spec a pip requirement string, optionally version-
+/// pinned) *with* their dependencies, without hash enforcement.
+///
+/// This is the weaker sibling of [`install_pinned`], and the weakening is
+/// deliberate and scoped. The experiment environment exists to run
+/// agent-authored code, which is already the one place the harness executes
+/// something it did not vet — so hash-pinning the base scientific stack is
+/// defense-in-depth here, not the trust boundary it is for a fold result. It is
+/// traded away because a hash-pinned install needs a fully resolved lockfile
+/// (every transitive wheel, per ABI), which the scientific stack does not ship
+/// with. Versions are still pinned, and the *resolved* set is captured by
+/// `pip freeze` into a `deps_hash`, so a run is still attributable to an exact
+/// environment even though the fetch was not hash-verified.
+///
+/// TODO: once the stack is resolved on a real cp314 machine, replace this with a
+/// committed hash-pinned lockfile and route it through `install_pinned`.
+pub fn install_versioned(venv: &Path, specs: &[&str]) -> Result<InstallationInfo, String> {
+    if specs.is_empty() {
+        return Err("no package specs supplied".into());
+    }
+    let py = venv_python(venv)?;
+    let req = venv.join("darwin-experiment-requirements.txt");
+    let body = specs.join("\n");
+    std::fs::write(&req, format!("{body}\n")).map_err(|e| format!("could not write requirements: {e}"))?;
+
+    let out = Command::new(&py)
+        .arg("-m")
+        .arg("pip")
+        .arg("install")
+        .arg("--disable-pip-version-check")
+        .arg("-r")
+        .arg(&req)
+        .output()
+        .map_err(|e| format!("pip install failed to start: {e}"))?;
+    let _ = std::fs::remove_file(&req);
+
+    if !out.status.success() {
+        return Err(format!(
+            "experiment environment install failed:\n{}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+
+    Ok(InstallationInfo {
+        python_version: python_version(venv)?,
+        deps: frozen_deps(venv)?,
+    })
+}
+
 /// `pip freeze` output, which is what we hash for provenance.
 pub fn frozen_deps(venv: &Path) -> Result<Vec<String>, String> {
     let py = venv_python(venv)?;

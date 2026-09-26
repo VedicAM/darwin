@@ -2,7 +2,9 @@ mod arxiv;
 mod bridge;
 mod capability;
 mod catalog;
+mod corpus;
 mod dispatch;
+mod experiment;
 mod fingerprint;
 mod install;
 mod pi;
@@ -13,7 +15,7 @@ pub mod testing;
 
 use std::sync::Arc;
 
-use capability::{ArxivRequest, CapabilityRequest, CapabilityResult, FoldRequest};
+use capability::{ArxivRequest, CapabilityRequest, CapabilityResult, ExperimentRequest, FoldRequest};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::init;
 
@@ -94,6 +96,29 @@ fn search_arxiv(
     }
 }
 
+/// Run an agent-authored Python experiment in the harness sandbox.
+///
+/// Execution is the harness's, never Pi's: the code runs in a constructed
+/// environment under a wall-clock deadline, and only files it produced are
+/// returned. See `experiment.rs` for the posture and its honest limits.
+#[tauri::command]
+fn run_experiment(
+    h: State<'_, Arc<Harness>>,
+    code: String,
+    inputs: Option<Vec<capability::ExperimentInput>>,
+    timeout_s: Option<u64>,
+) -> Result<capability::ExperimentResult, String> {
+    let mut request = ExperimentRequest::new(code);
+    if let Some(inputs) = inputs {
+        request.inputs = inputs;
+    }
+    request.timeout_s = timeout_s;
+    match h.execute(&CapabilityRequest::ExperimentRun(request))? {
+        CapabilityResult::ExperimentRun(r) => Ok(r),
+        other => Err(format!("`{}` did not return an experiment result", other.capability())),
+    }
+}
+
 /// Every registered tool, with install and health status.
 #[tauri::command]
 fn list_tools(h: State<'_, Arc<Harness>>) -> Result<Vec<ToolSummary>, String> {
@@ -157,6 +182,7 @@ pub fn run() {
             fold_ensemble,
             capability_execute,
             search_arxiv,
+            run_experiment,
             list_tools,
             install_tool,
         ])

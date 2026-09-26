@@ -13,10 +13,23 @@ use serde::{Deserialize, Serialize};
 pub const CAP_FOLD_MFE: &str = "fold.mfe";
 pub const CAP_FOLD_ENSEMBLE: &str = "fold.ensemble";
 pub const CAP_RESEARCH_ARXIV: &str = "research.arxiv";
+pub const CAP_RESEARCH_CORPUS: &str = "research.corpus";
+pub const CAP_EXPERIMENT_RUN: &str = "experiment.run";
+pub const CAP_TOOL_LIST: &str = "tool.list";
+pub const CAP_TOOL_INSTALL: &str = "tool.install";
+pub const CAP_PIP_INSTALL: &str = "pip.install";
 
 /// Every capability the harness knows how to satisfy.
-pub const KNOWN_CAPABILITIES: &[&str] =
-    &[CAP_FOLD_MFE, CAP_FOLD_ENSEMBLE, CAP_RESEARCH_ARXIV];
+pub const KNOWN_CAPABILITIES: &[&str] = &[
+    CAP_FOLD_MFE,
+    CAP_FOLD_ENSEMBLE,
+    CAP_RESEARCH_ARXIV,
+    CAP_RESEARCH_CORPUS,
+    CAP_EXPERIMENT_RUN,
+    CAP_TOOL_LIST,
+    CAP_TOOL_INSTALL,
+    CAP_PIP_INSTALL,
+];
 
 /// Which implementation to use for a call.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +120,99 @@ pub enum CapabilityRequest {
     FoldEnsemble(FoldRequest),
     #[serde(rename = "research.arxiv")]
     ResearchArxiv(ArxivRequest),
+    #[serde(rename = "research.corpus")]
+    ResearchCorpus(CorpusRequest),
+    #[serde(rename = "experiment.run")]
+    ExperimentRun(ExperimentRequest),
+    #[serde(rename = "tool.list")]
+    ToolList(ToolListRequest),
+    #[serde(rename = "tool.install")]
+    ToolInstall(ToolInstallRequest),
+    #[serde(rename = "pip.install")]
+    PipInstall(PipInstallRequest),
+}
+
+/// Request payload for `tool.list`. Deliberately empty: the agent lists the
+/// whole catalog and decides for itself, rather than the harness pre-filtering.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolListRequest {}
+
+/// Request payload for `tool.install`. `name` must be a curated catalog tool;
+/// installing arbitrary discovered code is intentionally not reachable here.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolInstallRequest {
+    pub name: String,
+}
+
+/// Result of a `tool.list` call: every registered tool and its install/health
+/// state, so the agent can see what it can fold with and what it must install.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ToolListResult {
+    pub tools: Vec<crate::service::ToolSummary>,
+}
+
+/// Most packages one `pip.install` call may request.
+pub const PIP_MAX_PACKAGES: usize = 25;
+/// Longest a single requirement spec may be.
+pub const PIP_MAX_SPEC_CHARS: usize = 200;
+
+/// Request payload for `pip.install`: pull packages from PyPI into the managed
+/// experiment environment so the agent can acquire a tool it needs on demand.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PipInstallRequest {
+    /// pip requirement specs, e.g. `["pyfamsa", "scikit-bio==0.6.0"]`.
+    pub packages: Vec<String>,
+}
+
+impl PipInstallRequest {
+    /// Validate the specs, or say why they are unusable. Each is passed to pip
+    /// as its own argv entry (never through a shell), so the concern is not
+    /// shell injection but keeping specs well-formed and bounded: no
+    /// whitespace, no control characters, no pip *options* (`-`-prefixed), and a
+    /// finite count.
+    pub fn normalized(&self) -> Result<Vec<String>, String> {
+        if self.packages.is_empty() {
+            return Err("no packages requested".into());
+        }
+        if self.packages.len() > PIP_MAX_PACKAGES {
+            return Err(format!(
+                "requested {} packages; the limit is {PIP_MAX_PACKAGES}",
+                self.packages.len()
+            ));
+        }
+        let mut out: Vec<String> = Vec::new();
+        for raw in &self.packages {
+            let spec = raw.trim();
+            if spec.is_empty() {
+                return Err("a package spec is empty".into());
+            }
+            if spec.chars().count() > PIP_MAX_SPEC_CHARS {
+                return Err(format!("package spec {spec:?} is too long"));
+            }
+            if spec.starts_with('-') {
+                return Err(format!("package spec {spec:?} looks like a pip option, not a package"));
+            }
+            if spec.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                return Err(format!("package spec {spec:?} contains whitespace or control characters"));
+            }
+            if !out.contains(&spec.to_string()) {
+                out.push(spec.to_string());
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Result of a `pip.install`: which specs were requested, and the environment's
+/// updated provenance so a later experiment's `deps_hash` is explained.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PipInstallResult {
+    pub packages: Vec<String>,
+    pub python_version: String,
+    /// Hash of the env's full resolved package set after the install.
+    pub deps_hash: String,
+    /// Count of packages in the environment after the install.
+    pub resolved_count: usize,
 }
 
 impl CapabilityRequest {
@@ -115,6 +221,39 @@ impl CapabilityRequest {
             CapabilityRequest::FoldMfe(_) => CAP_FOLD_MFE,
             CapabilityRequest::FoldEnsemble(_) => CAP_FOLD_ENSEMBLE,
             CapabilityRequest::ResearchArxiv(_) => CAP_RESEARCH_ARXIV,
+            CapabilityRequest::ResearchCorpus(_) => CAP_RESEARCH_CORPUS,
+            CapabilityRequest::ExperimentRun(_) => CAP_EXPERIMENT_RUN,
+            CapabilityRequest::ToolList(_) => CAP_TOOL_LIST,
+            CapabilityRequest::ToolInstall(_) => CAP_TOOL_INSTALL,
+            CapabilityRequest::PipInstall(_) => CAP_PIP_INSTALL,
+        }
+    }
+
+    pub fn as_experiment(&self) -> Option<&ExperimentRequest> {
+        match self {
+            CapabilityRequest::ExperimentRun(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    pub fn as_tool_list(&self) -> Option<&ToolListRequest> {
+        match self {
+            CapabilityRequest::ToolList(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    pub fn as_tool_install(&self) -> Option<&ToolInstallRequest> {
+        match self {
+            CapabilityRequest::ToolInstall(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    pub fn as_pip_install(&self) -> Option<&PipInstallRequest> {
+        match self {
+            CapabilityRequest::PipInstall(r) => Some(r),
+            _ => None,
         }
     }
 
@@ -126,13 +265,20 @@ impl CapabilityRequest {
     pub fn as_fold(&self) -> Option<&FoldRequest> {
         match self {
             CapabilityRequest::FoldMfe(r) | CapabilityRequest::FoldEnsemble(r) => Some(r),
-            CapabilityRequest::ResearchArxiv(_) => None,
+            _ => None,
         }
     }
 
     pub fn as_arxiv(&self) -> Option<&ArxivRequest> {
         match self {
             CapabilityRequest::ResearchArxiv(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    pub fn as_corpus(&self) -> Option<&CorpusRequest> {
+        match self {
+            CapabilityRequest::ResearchCorpus(r) => Some(r),
             _ => None,
         }
     }
@@ -269,6 +415,242 @@ fn collapse_whitespace(input: &str) -> String {
     input.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Default and hard-ceiling result counts for `research.corpus`.
+pub const CORPUS_DEFAULT_MAX_RESULTS: usize = 10;
+pub const CORPUS_MAX_RESULTS: usize = 50;
+
+/// Request payload for `research.corpus`: a full-text-ish query over the
+/// project's MongoDB paper corpus. An empty query returns the whole (small)
+/// corpus rather than erroring, since "show me what's in there" is a real ask.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CorpusRequest {
+    #[serde(default)]
+    pub query: String,
+    #[serde(default = "corpus_default_max_results")]
+    pub max_results: usize,
+}
+
+fn corpus_default_max_results() -> usize {
+    CORPUS_DEFAULT_MAX_RESULTS
+}
+
+impl CorpusRequest {
+    pub fn new(query: String) -> Self {
+        Self { query, max_results: CORPUS_DEFAULT_MAX_RESULTS }
+    }
+
+    /// Whitespace-collapsed query and a clamped result count.
+    pub fn normalized(&self) -> (String, usize) {
+        let query = collapse_whitespace(&self.query);
+        (query, self.max_results.clamp(1, CORPUS_MAX_RESULTS))
+    }
+}
+
+/// One source from the corpus. Field names line up with what the papers
+/// projector recognises (`title`, `authors`, `arxiv_id`, `summary`), so a
+/// corpus result renders in the same research view as an arXiv search.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CorpusPaper {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    pub title: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub authors: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arxiv_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub key_points: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// Result of a `research.corpus` call.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CorpusResult {
+    pub query: String,
+    pub results: Vec<CorpusPaper>,
+    pub provider: String,
+    pub elapsed_ms: u64,
+}
+
+/// Longest analysis script accepted, in bytes. Agent-authored code is a few
+/// kilobytes; a megabyte is a runaway generation, not an experiment.
+pub const EXPERIMENT_MAX_CODE_BYTES: usize = 256 * 1024;
+
+/// Largest single input file the caller may stage, in bytes. Inputs are held in
+/// memory and written to the run's scratch dir, so this bounds both.
+pub const EXPERIMENT_MAX_INPUT_BYTES: usize = 4 * 1024 * 1024;
+
+/// Most input files a single experiment may stage.
+pub const EXPERIMENT_MAX_INPUTS: usize = 32;
+
+/// Default wall-clock budget for one experiment, and the ceiling a caller may
+/// ask for. Execution is agent-authored, so an unbounded run is not an option.
+pub const EXPERIMENT_DEFAULT_TIMEOUT_S: u64 = 60;
+pub const EXPERIMENT_MAX_TIMEOUT_S: u64 = 300;
+
+/// A file staged into an experiment's working directory before it runs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExperimentInput {
+    /// A bare filename, no path separators. Written into the scratch cwd.
+    pub name: String,
+    /// UTF-8 contents. Binary inputs are out of scope for this capability.
+    pub contents: String,
+}
+
+/// Request payload for `experiment.run`.
+///
+/// The code is agent-authored and run by the harness — never by Pi, which has
+/// no execution tools. Validation lives here so the sandbox is never the thing
+/// that discovers an empty script or an absurd timeout.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExperimentRequest {
+    /// The Python program to run. Reads its inputs from the working directory
+    /// and writes results (files, stdout) back into it.
+    pub code: String,
+    #[serde(default)]
+    pub inputs: Vec<ExperimentInput>,
+    /// Wall-clock budget in seconds. Clamped to `EXPERIMENT_MAX_TIMEOUT_S`.
+    #[serde(default)]
+    pub timeout_s: Option<u64>,
+}
+
+/// A validated experiment: code within bounds, inputs named safely, timeout
+/// clamped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExperimentPlan {
+    pub code: String,
+    pub inputs: Vec<ExperimentInput>,
+    pub timeout_s: u64,
+}
+
+impl ExperimentRequest {
+    pub fn new(code: String) -> Self {
+        Self { code, inputs: Vec::new(), timeout_s: None }
+    }
+
+    /// Validate and bound the request, or say why it is unusable.
+    pub fn normalized(&self) -> Result<ExperimentPlan, String> {
+        if self.code.trim().is_empty() {
+            return Err("experiment code is empty".into());
+        }
+        if self.code.len() > EXPERIMENT_MAX_CODE_BYTES {
+            return Err(format!(
+                "experiment code is {} bytes; the limit is {EXPERIMENT_MAX_CODE_BYTES}",
+                self.code.len()
+            ));
+        }
+        if self.inputs.len() > EXPERIMENT_MAX_INPUTS {
+            return Err(format!(
+                "experiment declares {} inputs; the limit is {EXPERIMENT_MAX_INPUTS}",
+                self.inputs.len()
+            ));
+        }
+        let mut seen = Vec::new();
+        for input in &self.inputs {
+            let name = input.name.trim();
+            // A bare filename only: an input must land in the scratch cwd and
+            // nowhere else, so a path separator or a parent reference is a
+            // traversal attempt, not a filename.
+            if name.is_empty()
+                || name.contains('/')
+                || name.contains('\\')
+                || name == "."
+                || name == ".."
+                || name.starts_with('.') && name.len() == 1
+            {
+                return Err(format!("input name {name:?} is not a bare filename"));
+            }
+            if input.contents.len() > EXPERIMENT_MAX_INPUT_BYTES {
+                return Err(format!(
+                    "input {name:?} is {} bytes; the per-file limit is {EXPERIMENT_MAX_INPUT_BYTES}",
+                    input.contents.len()
+                ));
+            }
+            if seen.contains(&name) {
+                return Err(format!("input {name:?} is declared more than once"));
+            }
+            seen.push(name);
+        }
+        let timeout_s = self
+            .timeout_s
+            .unwrap_or(EXPERIMENT_DEFAULT_TIMEOUT_S)
+            .clamp(1, EXPERIMENT_MAX_TIMEOUT_S);
+        Ok(ExperimentPlan {
+            code: self.code.clone(),
+            inputs: self.inputs.clone(),
+            timeout_s,
+        })
+    }
+}
+
+/// How the harness classified a file the experiment wrote, so the UI can pick a
+/// renderer without re-sniffing. Deliberately coarse: the frontend refines it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProducedFileKind {
+    /// `.json` — a structured result the agent chose to emit.
+    Data,
+    /// `.csv`/`.tsv` — tabular.
+    Table,
+    /// `.fasta`/`.fa`/`.aln` — sequence or alignment.
+    Sequence,
+    /// `.png`/`.svg` — a plot the code rendered.
+    Image,
+    /// Anything else, surfaced as text when it decodes as UTF-8.
+    Text,
+}
+
+/// One file an experiment left in its working directory.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProducedFile {
+    pub name: String,
+    pub kind: ProducedFileKind,
+    pub size: u64,
+    /// UTF-8 contents when the file is text and within the preview cap; a
+    /// base64 data URI for images. `None` when the file is too large or binary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// Set when `content` was omitted because the file exceeded the cap.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+/// Result of an `experiment.run` call.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExperimentResult {
+    /// The code that ran, echoed so the result is self-describing and the UI
+    /// can show exactly what produced the numbers.
+    pub code: String,
+    pub stdout: String,
+    pub stderr: String,
+    /// Process exit code, or `None` if the run was killed on its deadline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    pub timed_out: bool,
+    pub produced_files: Vec<ProducedFile>,
+    pub provider: String,
+    /// SHA-256 of the exact code that ran. Always present: a run is always
+    /// attributable to its source even on the bare interpreter.
+    pub code_sha256: String,
+    /// Interpreter version, when the run used the managed experiment env.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_version: Option<String>,
+    /// Order-independent hash of the environment's `pip freeze`, when the run
+    /// used the managed experiment env. This is what makes a result reproducible.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deps_hash: Option<String>,
+    pub elapsed_ms: u64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FoldResult {
     pub sequence: String,
@@ -326,6 +708,16 @@ pub enum CapabilityResult {
     FoldEnsemble(FoldResult),
     #[serde(rename = "research.arxiv")]
     ResearchArxiv(ArxivResult),
+    #[serde(rename = "research.corpus")]
+    ResearchCorpus(CorpusResult),
+    #[serde(rename = "experiment.run")]
+    ExperimentRun(ExperimentResult),
+    #[serde(rename = "tool.list")]
+    ToolList(ToolListResult),
+    #[serde(rename = "tool.install")]
+    ToolInstall(crate::service::InstallReport),
+    #[serde(rename = "pip.install")]
+    PipInstall(PipInstallResult),
 }
 
 impl CapabilityResult {
@@ -334,6 +726,11 @@ impl CapabilityResult {
             CapabilityResult::FoldMfe(_) => CAP_FOLD_MFE,
             CapabilityResult::FoldEnsemble(_) => CAP_FOLD_ENSEMBLE,
             CapabilityResult::ResearchArxiv(_) => CAP_RESEARCH_ARXIV,
+            CapabilityResult::ResearchCorpus(_) => CAP_RESEARCH_CORPUS,
+            CapabilityResult::ExperimentRun(_) => CAP_EXPERIMENT_RUN,
+            CapabilityResult::ToolList(_) => CAP_TOOL_LIST,
+            CapabilityResult::ToolInstall(_) => CAP_TOOL_INSTALL,
+            CapabilityResult::PipInstall(_) => CAP_PIP_INSTALL,
         }
     }
 
@@ -378,6 +775,20 @@ mod tests {
     #[test]
     fn rejects_empty() {
         assert!(FoldRequest::new("   ".into()).normalized().is_err());
+    }
+
+    #[test]
+    fn pip_install_validates_and_dedups_specs() {
+        let ok = PipInstallRequest {
+            packages: vec!["pyfamsa".into(), "scikit-bio==0.6.0".into(), " pyfamsa ".into()],
+        };
+        assert_eq!(ok.normalized().unwrap(), vec!["pyfamsa", "scikit-bio==0.6.0"]);
+
+        assert!(PipInstallRequest { packages: vec![] }.normalized().is_err());
+        // A pip option, not a package.
+        assert!(PipInstallRequest { packages: vec!["--index-url".into()] }.normalized().is_err());
+        // Whitespace inside a spec (a smuggled second arg) is refused.
+        assert!(PipInstallRequest { packages: vec!["numpy --upgrade".into()] }.normalized().is_err());
     }
 
     #[test]

@@ -35,8 +35,16 @@ use tauri::{AppHandle, Emitter};
 /// `research.arxiv` does not. Migrating it onto the same socket is the obvious
 /// follow-up.
 ///
+/// `run_experiment` is the extension in `.pi/extensions/experiment-run.ts`. It
+/// follows the `research.arxiv` pattern, not the `github_search` one: it holds
+/// no execution or network capability of its own and sends an `experiment.run`
+/// capability request over the harness socket, where Rust runs the code in a
+/// constructed environment under a deadline. Allowlisting it grants a *harness
+/// call*, not a shell.
+///
 /// Override with `DARWIN_PI_TOOLS` for a different posture.
-const DEFAULT_TOOLS: &str = "read,ls,grep,find,research.arxiv,github_search";
+const DEFAULT_TOOLS: &str =
+    "read,ls,grep,find,research.arxiv,github_search,run_experiment,fold_rna,list_tools,install_tool,pip_install";
 
 struct Running {
     child: Child,

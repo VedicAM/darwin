@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::arxiv::{self, Throttle};
 use crate::capability::{
@@ -34,6 +34,26 @@ const DEFAULT_DEADLINE: Duration = Duration::from_secs(30);
 
 /// A tool is not runnable until a known-answer test passes.
 const SMOKE_TEST_REQUIRED: bool = true;
+
+/// The managed experiment environment. Not a catalog tool: it is installed by
+/// name through `install_named` but has no adapter, no capability record and no
+/// registry candidate — it only backs `experiment.run` as an interpreter.
+const EXPERIMENT_ENV_NAME: &str = "experiment-env";
+/// Bump when `EXPERIMENT_PACKAGES` changes, so the new set is a fresh env dir.
+const EXPERIMENT_ENV_VERSION: &str = "2";
+/// The scientific stack an experiment can rely on. Unpinned top-level requests;
+/// the exact resolved set is captured by `pip freeze` into the deps hash. See
+/// `install::install_versioned` for the hash-vs-version trade-off.
+///
+/// `pyfamsa` (FAMSA) is the multiple-sequence-alignment engine: it ships as an
+/// importable wheel with no external binary, which matters because the sandbox
+/// has no `mafft`/`clustalo`/`muscle` on PATH and Biopython only does *pairwise*
+/// alignment. Without it the agent has no way to align, and flails calling
+/// command-line tools that are not installed.
+/// `pymongo`/`dnspython` back the `research.corpus` capability: its query script
+/// runs on this interpreter, so the corpus is reachable once the env is built.
+const EXPERIMENT_PACKAGES: &[&str] =
+    &["numpy", "biopython", "matplotlib", "pandas", "pyfamsa", "pymongo", "dnspython"];
 
 pub struct Harness {
     pub registry: SqliteRegistry,
@@ -60,6 +80,11 @@ impl Harness {
 
     /// Install a catalog tool by name.
     pub fn install_named(&self, name: &str) -> Result<InstallReport, String> {
+        // The experiment environment is installed by name like a tool, but it is
+        // not a catalog entry — it is the interpreter that backs `experiment.run`.
+        if name == EXPERIMENT_ENV_NAME {
+            return self.ensure_experiment_env();
+        }
         let tool = catalog::all()
             .into_iter()
             .find(|t| t.record.name == name)
@@ -318,6 +343,25 @@ impl Harness {
         if !crate::capability::KNOWN_CAPABILITIES.contains(&capability) {
             return Err(format!("unknown capability `{capability}`"));
         }
+        if request.as_tool_list().is_some() {
+            return self
+                .summarize()
+                .map(|tools| CapabilityResult::ToolList(crate::capability::ToolListResult { tools }));
+        }
+        if let Some(req) = request.as_tool_install() {
+            return self.install_named(&req.name).map(CapabilityResult::ToolInstall);
+        }
+        if let Some(req) = request.as_pip_install() {
+            return self.execute_pip_install(req).map(CapabilityResult::PipInstall);
+        }
+        if let Some(corpus) = request.as_corpus() {
+            return self.execute_corpus(corpus).map(CapabilityResult::ResearchCorpus);
+        }
+        if let Some(exp) = request.as_experiment() {
+            return self
+                .execute_experiment(exp)
+                .map(CapabilityResult::ExperimentRun);
+        }
         match (request.as_fold(), request.as_arxiv()) {
             (Some(fold), _) => self
                 .execute_fold(capability, fold)
@@ -328,14 +372,196 @@ impl Harness {
             (None, Some(arxiv)) => self
                 .execute_arxiv(capability, arxiv)
                 .map(CapabilityResult::ResearchArxiv),
-            // Unreachable while `CapabilityRequest` has exactly these two
-            // payload shapes. Reported rather than panicked on, so widening
-            // the enum later surfaces as a clear error instead of a crash.
+            // Unreachable while every payload shape is handled above. Reported
+            // rather than panicked on, so widening the enum later surfaces as a
+            // clear error instead of a crash.
             (None, None) => Err(format!(
                 "no payload for capability `{capability}`; the request variant and \
                  its accessor disagree"
             )),
         }
+    }
+
+    /// Run an agent-authored experiment.
+    ///
+    /// Unlike fold and arxiv, this does not resolve a registry tool: the
+    /// "implementation" is a Python interpreter, and the code is supplied by the
+    /// caller rather than bundled. It still validates in Rust first, runs under
+    /// the constructed-environment / deadline posture of `experiment.rs`, and
+    /// echoes the code back so the result is self-describing.
+    ///
+    /// If the managed experiment environment has been built (via
+    /// `install_tool("experiment-env")`), the run uses that venv's interpreter,
+    /// so numpy/Biopython/matplotlib are importable and the result carries the
+    /// env's python version and deps hash — enough to reproduce it. Otherwise it
+    /// falls back to a bare interpreter, and only the code hash is recorded.
+    fn execute_experiment(
+        &self,
+        request: &crate::capability::ExperimentRequest,
+    ) -> Result<crate::capability::ExperimentResult, String> {
+        let plan = request.normalized()?;
+        let code_sha256 = crate::fingerprint::sha256_hex(plan.code.as_bytes());
+
+        // Prefer the managed env when present; never build it here, because a
+        // network install must be an explicit act, not a side effect of a fold.
+        let (interpreter, python_version, deps_hash, provider) = match self.experiment_env_python() {
+            Some(py) => {
+                let deps = install::frozen_deps(&self.experiment_env_dir()).ok();
+                let version = install::python_version(&self.experiment_env_dir()).ok();
+                let deps_hash = deps.map(|d| {
+                    let refs: Vec<&str> = d.iter().map(String::as_str).collect();
+                    crate::fingerprint::hash_deps(&refs)
+                });
+                (py, version, deps_hash, format!("experiment-env ({EXPERIMENT_ENV_VERSION})"))
+            }
+            None => {
+                let py = self.experiment_interpreter()?;
+                let provider = format!("python ({}) — experiment-env not installed", py.display());
+                (py, None, None, provider)
+            }
+        };
+
+        let outcome = crate::experiment::run(&interpreter, &plan)?;
+        Ok(crate::capability::ExperimentResult {
+            code: plan.code,
+            stdout: outcome.stdout,
+            stderr: outcome.stderr,
+            exit_code: outcome.exit_code,
+            timed_out: outcome.timed_out,
+            produced_files: outcome.produced_files,
+            provider,
+            code_sha256,
+            python_version,
+            deps_hash,
+            elapsed_ms: outcome.elapsed_ms,
+        })
+    }
+
+    /// Install packages from PyPI into the managed experiment environment.
+    ///
+    /// This is the agent acquiring a tool from the web on demand: it hits a
+    /// missing library in an experiment, installs it here, and re-runs. The base
+    /// env is built first if needed, so the scientific stack is always present
+    /// alongside whatever the agent pulls in. Packages persist in the env across
+    /// runs, so a tool is installed once and then just imported.
+    ///
+    /// The trust posture is explicit: unlike the curated catalog, these packages
+    /// are not hash-pinned or vetted — the agent chose them. That is the point
+    /// of the capability, and it is bounded by the same sandbox every experiment
+    /// runs under (constructed env, deadline). The resolved set is captured in
+    /// the deps hash, so a result is still attributable to an exact environment.
+    fn execute_pip_install(
+        &self,
+        request: &crate::capability::PipInstallRequest,
+    ) -> Result<crate::capability::PipInstallResult, String> {
+        let packages = request.normalized()?;
+        // Ensure the base env exists so packages land beside numpy/Biopython.
+        self.ensure_experiment_env()?;
+        let env = self.experiment_env_dir();
+        let specs: Vec<&str> = packages.iter().map(String::as_str).collect();
+        let info = install::install_versioned(&env, &specs)?;
+        Ok(crate::capability::PipInstallResult {
+            packages,
+            python_version: info.python_version.clone(),
+            deps_hash: info.deps_hash(),
+            resolved_count: info.deps.len(),
+        })
+    }
+
+    /// Directory of the managed experiment environment, versioned so a change to
+    /// the package set is a new environment rather than an in-place mutation.
+    fn experiment_env_dir(&self) -> PathBuf {
+        self.root
+            .join("envs")
+            .join(format!("{EXPERIMENT_ENV_NAME}-{EXPERIMENT_ENV_VERSION}"))
+    }
+
+    /// The experiment env's interpreter, if the env has been built.
+    fn experiment_env_python(&self) -> Option<PathBuf> {
+        let py = self.experiment_env_dir().join("bin").join("python");
+        py.exists().then_some(py)
+    }
+
+    /// Build the managed experiment environment: a venv with the scientific
+    /// stack the agent's analyses need. Idempotent — returns the existing env if
+    /// it is already built. Needs the network on first build.
+    ///
+    /// This is the one environment whose packages are version-pinned rather than
+    /// hash-pinned; see `install::install_versioned` for why that trade is made
+    /// here and nowhere else.
+    fn ensure_experiment_env(&self) -> Result<InstallReport, String> {
+        let env = self.experiment_env_dir();
+        let info = if self.experiment_env_python().is_some() {
+            install::InstallationInfo {
+                python_version: install::python_version(&env)?,
+                deps: install::frozen_deps(&env)?,
+            }
+        } else {
+            install::create_venv(&env, None)?;
+            let info = install::install_versioned(&env, EXPERIMENT_PACKAGES)?;
+            // A smoke import, so a half-built env is a failure now rather than a
+            // confusing ImportError inside the user's first experiment.
+            self.smoke_import(&env)?;
+            info
+        };
+        Ok(InstallReport {
+            tool: EXPERIMENT_ENV_NAME.to_string(),
+            version: EXPERIMENT_ENV_VERSION.to_string(),
+            algorithm: "user_code".to_string(),
+            approximate: false,
+            tier: "environment".to_string(),
+            venv_path: env.to_string_lossy().to_string(),
+            python_version: info.python_version.clone(),
+            deps_hash: info.deps_hash(),
+            smoke_test: format!("{} packages resolved; core imports ok", info.deps.len()),
+        })
+    }
+
+    /// Confirm the scientific stack imports in the built env.
+    fn smoke_import(&self, env: &Path) -> Result<(), String> {
+        let py = env.join("bin").join("python");
+        let out = std::process::Command::new(&py)
+            .arg("-c")
+            .arg("import numpy, Bio, matplotlib, pyfamsa; matplotlib.use('Agg')")
+            .output()
+            .map_err(|e| format!("could not run the experiment-env smoke import: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "experiment-env built but core imports failed:\n{}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(())
+    }
+
+    /// The interpreter experiments run under.
+    ///
+    /// `DARWIN_PYTHON` is authoritative when set. Otherwise the first `python3`
+    /// on a small set of well-known paths is used. There is intentionally no
+    /// bare-`python3`-on-PATH search: the run environment is constructed with a
+    /// fixed `PATH`, so the interpreter must be an absolute path the harness
+    /// resolved, not one the child looks up.
+    fn experiment_interpreter(&self) -> Result<PathBuf, String> {
+        if let Ok(p) = std::env::var("DARWIN_PYTHON") {
+            let path = PathBuf::from(p);
+            if path.exists() {
+                return Ok(path);
+            }
+            return Err(format!(
+                "DARWIN_PYTHON points at {}, which does not exist",
+                path.display()
+            ));
+        }
+        for cand in [
+            "/opt/homebrew/bin/python3",
+            "/usr/local/bin/python3",
+            "/usr/bin/python3",
+        ] {
+            if Path::new(cand).exists() {
+                return Ok(PathBuf::from(cand));
+            }
+        }
+        Err("no Python interpreter found; set DARWIN_PYTHON to run experiments".into())
     }
 
     /// Pick the installed, smoke-passed tool that will serve a capability.
@@ -658,7 +884,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolSummary {
     pub name: String,
     pub version: String,
@@ -670,7 +896,7 @@ pub struct ToolSummary {
     pub healthy: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InstallReport {
     pub tool: String,
     pub version: String,
@@ -702,6 +928,20 @@ impl Harness {
                 healthy: inst.and_then(|i| i.smoke_test.as_ref().map(|s| s.passed)),
             });
         }
+        // The experiment environment is not in the registry, but the agent needs
+        // to see it to know whether it must install it before an experiment can
+        // import numpy/Biopython. Surfaced as a synthetic summary.
+        let env_installed = self.experiment_env_python().is_some();
+        out.push(ToolSummary {
+            name: EXPERIMENT_ENV_NAME.to_string(),
+            version: EXPERIMENT_ENV_VERSION.to_string(),
+            source: "managed".to_string(),
+            algorithm: "user_code".to_string(),
+            approximate: false,
+            capabilities: vec![crate::capability::CAP_EXPERIMENT_RUN.to_string()],
+            installed: env_installed,
+            healthy: env_installed.then_some(true),
+        });
         Ok(out)
     }
 }
